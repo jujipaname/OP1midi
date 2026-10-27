@@ -43,3 +43,26 @@ SHA-256 : `286c4124d6ffd37de182c8758f84f71ea45ffbc3e01e0b98e375e5f80417d0c4` (12
 - Ne jamais flasher pendant que l'appareil enregistre ou transfère.
 - Toute nouvelle image (rebuild) doit repasser la validation : re-unpack op1repacker sans erreur,
   tailles cohérentes, diff contenu attendu.
+
+## Installation du plugin op1midi.knl (OP-1 sous Hundekraft 3.0.x)
+
+**Prérequis** : OP-1 sous Hundekraft 3.0.3, câble USB, navigateur Chrome/Edge (Web MIDI),
+`hundekraft-plugin/op1midi.knl`.
+
+1. **Sauvegarde d'abord** : disk mode (Shift + COM, puis T3) → copier tout le contenu du disque
+   vers le PC → éjecter proprement.
+2. Ouvrir https://hundekraft.github.io/op1-workshop/ → onglet **Your plugins** → ajouter
+   `op1midi.knl`.
+3. Connecter l'OP-1 en USB (allumé, hors disk mode) → **Update OP-1** : le Workshop lit
+   l'inventaire (SysEx), vérifie le core (CRC identique → seul le fichier plugin est envoyé) et
+   affiche la review (nom, claims `key:clock:white` — aucun conflit attendu).
+4. Envoyer → **confirmer sur l'OP-1 avec T1** (T2 annule ; seule validation possible : physique).
+5. L'appareil redémarre (l'installation prend effet au redémarrage confirmé, pas de hot reload) ;
+   le Workshop vérifie automatiquement (bouton **Refresh**). Si un boot est interrompu, le
+   démarrage suivant ignore les fichiers plugins une fois (comportement « safe start ») — rebooter.
+6. Sur l'OP-1 : **Shift + Help** → **T3** → rangée « MIDI MAP » (vert/blanc/rouge selon l'ordre
+   d'enregistrement) : tourner = ON/OFF. **Appui sur l'encodeur blanc** en mode clock = éditeur
+   (16 lignes, curseur rouge, Shift + Help = valider). Défaut : canal 1, CC 80/81/82 = marqueur
+   suivant / précédent / lecture depuis le marqueur courant.
+7. Retrait : suppression via le Workshop (le core n'est jamais modifié) ; le firmware original
+   R246 reste reflasable en dernier recours (procédure ci-dessus).

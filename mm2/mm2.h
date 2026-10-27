@@ -1,3 +1,4 @@
+/* Copyright (C) 2026 OP1midi. GPL-3.0-or-later with the OP-1 firmware permission (see LICENSE and NOTICE). */
 /* MM2 — mapping MIDI généraliste pour OP-1 OG (OP1midi).
  * Module portable, sans dépendance op1r/Hundekraft: l'intégration câble les pointeurs
  * ci-dessous (settings, actions, sondes d'environnement), puis route les événements.

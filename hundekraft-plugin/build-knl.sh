@@ -14,7 +14,7 @@ rm -rf "$DST"
 mkdir -p "$DST" "$KENNEL/build"
 cp "$HERE/op1midi/plugin.json" "$HERE/op1midi/mm2.h" "$HERE/op1midi/"*.c "$DST/"
 
-docker run --rm -u "$(id -u):$(id -g)" -v "$KENNEL":/work -w /work bfin-elf-toolchain-py \
+docker run --rm -u "$(id -u):$(id -g)" -v "$KENNEL":/work -w /work bfin-elf-toolchain-13 \
     python3 tools/kennel/pack.py synth_sdk/plugins/op1midi -o build/op1midi.knl
 
 cp "$KENNEL/build/op1midi.knl" "$HERE/op1midi.knl"

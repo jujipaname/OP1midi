@@ -1,3 +1,4 @@
+/* Copyright (C) 2026 OP1midi. GPL-3.0-or-later with the OP-1 firmware permission (see LICENSE and NOTICE). */
 /* MM2 noyau: table de 16 lignes, dispatch CC/PC, gardes, actions via hooks, persistance.
  * Voir mm2.h pour le contrat complet. Aucune dépendance: l'intégration fournit
  * mm2_setting_get/put, mm2_act_*, mm2_env_query. */

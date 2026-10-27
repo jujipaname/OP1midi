@@ -1,3 +1,4 @@
+/* Copyright (C) 2026 OP1midi. GPL-3.0-or-later with the OP-1 firmware permission (see LICENSE and NOTICE). */
 /* MM2 éditeur: machine à états pure (pas de rendu). Voir mm2.h.
  * Blanc = éditeur (action en rotation; appui = édition de valeur, re-appui = valider),
  * rouge = curseur. Rendu: ligne du curseur en rouge, les autres en blanc (côté intégration). */

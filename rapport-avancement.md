@@ -105,11 +105,17 @@ La différence de taille (−627 Ko) vient de la recompression LZMA par op1repac
   (wrap, tolérance 10 ms) via les données partagées.
 - `plugin.json` : kind feature, claims `["key:clock:white"]` (aucun autre consommateur du push
   blanc en mode clock, vérifié dans sysmon/usbout/scalepg/settings).
-- **`op1midi.knl` packé avec succès** : 11 756 octets, .text 5100 / .rodata 1996 / .bss 212,
-  351 relocations, 13 imports **tous présents dans kn_exports.c**, aucun warning packer
-  (compilé avec bfin-elf-gcc 12.3.0 ; la build officielle utilise 13.3.0 — à aligner si besoin).
+- **`op1midi.knl` packé avec succès** : 12 028 octets, .text 5092 / .rodata 2060 / .data 8 /
+  .bss 212, 369 relocations, 13 imports **tous présents dans kn_exports.c**, aucun warning packer.
+  **Compilé avec bfin-elf-gcc 13.3.0** (toolchain dédiée `bfin-elf-toolchain-13`, Dockerfile
+  `-j2` ; un premier pack en 12.3.0 donnait les mêmes 13 imports — version alignée sur le build
+  officiel Hundekraft 3.0 après audit de compatibilité, §7).
 - Build reproductible : `hundekraft-plugin/build-knl.sh` (injecte le plugin dans le bundle,
-  packe sous Docker `bfin-elf-toolchain-py` = image toolchain + python3, sort `op1midi.knl`).
+  packe sous Docker `bfin-elf-toolchain-13`, sort `op1midi.knl`).
+- Licences : en-têtes GPL-3.0-or-later + permission OP-1 sur tous les fichiers du plugin et de
+  `mm2/`, `hundekraft-plugin/LICENSE` (GPLv3 du bundle kennel) + `hundekraft-plugin/NOTICE`
+  (lineage op1r/kennel, core requis 3.0.3 / API 1, control map, claims, build, install, changelog v1).
+  Le LICENSE MIT racine couvre docs et scripts.
 
 **Limites connues du plugin v1**
 - INSTRUMENT SELECT : aucun service core de sélection d'instrument/preset à ce jour → toast
@@ -122,3 +128,29 @@ La différence de taille (−627 Ko) vient de la recompression LZMA par op1repac
 ## 5. Rappel distribution (choix : A — build complet)
 - Première installation : image custom requise (parties chiffrées XTEA irrégénérables, hooks à adresses fixes)
 - Mises à jour ultérieures possibles **à distance par USB MIDI** via `devupd` (SysEx `F0 00 20 76 7D`, flasher NAND gardé)
+
+## 7. Audit de compatibilité vs PLUGIN_GUIDE.md (27 octobre 2026)
+
+Audit point par point du plugin `op1midi.knl` contre `PLUGIN_GUIDE.md` du bundle 3.0.3 :
+
+| Exigence | Statut |
+|---|---|
+| ID 1–15 minuscules/chiffres/`_`/`-` (`op1midi`) | ✅ |
+| Manifest feature complet (kind/symbol/loadable/sources/claims/author/version) | ✅ |
+| Descripteur `op1_feature_t` const, init désignée, membres inutilisés à zéro | ✅ |
+| Claims dans plugin.json **et** descripteur, grammaire `key:<mode>:<combo>` | ✅ |
+| Validité du claim côté Workshop (`plugin-plan.js claimText` : « WHITE IN CLOCK MODE », pas de whitelist, aucun autre claimant) | ✅ |
+| Imports uniquement dans `kn_exports.c` (13/13) | ✅ |
+| Core function as callback → wrappers locaux uniquement | ✅ |
+| Descripteur en données initialisées (rodata) | ✅ |
+| Taille ≤ 512 KiB | ✅ 11,8 Ko |
+| `midi_raw` borné, travail délégué (file SPSC → `OP1_EV_SERVICE`) | ✅ |
+| Réglages sous l'ID du plugin, jamais thread audio | ✅ |
+| Overlay court (4 lignes + titre) | ✅ |
+| Firmware TE / clés absents du bundle plugin | ✅ |
+| Hardware non testé = déclaré non testé | ✅ |
+| GCC 13.3.0 (build officiel 3.0) | ✅ (repacké en 13.3, voir §6) |
+| Licences GPL-3.0-or-later + permission OP-1 par fichier, NOTICE dédié | ✅ (`hundekraft-plugin/LICENSE` = GPLv3 du bundle, `NOTICE` : lineage, core requis, control map, claims, build, install, changelog) |
+
+Limites documentées : INSTRUMENT SELECT sans service core (toast) ; test matériel restant (aucun
+émulateur dans le bundle ; imports vérifiés statiquement).

@@ -1,3 +1,4 @@
+/* Copyright (C) 2026 OP1midi. GPL-3.0-or-later with the OP-1 firmware permission (see LICENSE and NOTICE). */
 /* Test hôte MM2: codec, persistance, dispatch CC/PC, gardes, actions, éditeur.
  * cc -O1 -fsanitize=address,undefined mm2_test.c mm2_core.c mm2_edit.c -o mm2_test && ./mm2_test */
 #include "mm2.h"

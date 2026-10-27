@@ -1,0 +1,60 @@
+OP1midi plugin for the Hundekraft kennel runtime (Teenage Engineering OP-1, firmware R246)
+Copyright (C) 2026 OP1midi (jujipaname)
+
+The plugin sources (op1midi.c, mm2.h, mm2_core.c, mm2_edit.c) are free software: you can redistribute them and/or
+modify them under the terms of the GNU General Public License as published by the Free Software Foundation, either
+version 3 of the License, or (at your option) any later version (LICENSE in this folder), distributed WITHOUT ANY
+WARRANTY.
+
+ADDITIONAL PERMISSION (GPL-3.0 section 7)
+As an additional permission, you may combine this program, or a work based on it, with the Teenage Engineering
+OP-1 firmware (original or patched) and convey the resulting combination, provided that the parts of the
+combination that are this program or based on it are conveyed under the terms of the GPL with this additional
+permission. The OP-1 firmware itself is not covered by this license.
+
+LINEAGE
+The plugin is built against the kennel plugin SDK of Hundekraft 3.0.3 (https://github.com/Hundekraft/op1-workshop),
+which is based on op1r-src by pcppcp (https://github.com/pcppcp/op1r-src); both are GPL-3.0-or-later with the same
+additional permission (see their LICENSE and NOTICE files). The marker-jump logic ports op1r's tape/markers.c
+jump semantics. No Teenage Engineering firmware, device key or NAND image is included or required to build.
+
+REQUIRED CORE
+Hundekraft 3.0.3 (kennel feature API OP1_FEATURE_API = 1). Built with the 3.0.3 source/SDK bundle
+(SHA-256 of the bundle: 2f745e3858f9fabf8e653ecfe3511679b47f795ff09f13e9bd5590e26995b1d7).
+Newer cores may work; older cores reject unknown imports at load time.
+
+WHAT IT DOES (control map)
+- Shift + Help (clock mode) -> T3 settings: the "MIDI MAP" switch row (green, white or red depending on
+  registration order; it is the only switch registered today). Turn: mapping ON/OFF (setting op1midi.mmen).
+- White encoder push in clock mode: opens the mapping editor (modal overlay, 320x160).
+- Editor: blue = MIDI channel (1..16 / ALL), green = CC/PC number (push toggles CC <-> PC), white = action
+  (turn; push = value edit for TAPE/INSTRUMENT, push again = validate), red = row cursor over 16 rows
+  (4 pages, the cursor row is drawn red, others white), left/right = pages, Shift + Help = validate and close
+  (settings op1midi.mmr0..mmr15, one packed int32 per row).
+- Actions: MARKER NEXT / MARKER PREV (jump via the core's shared markers tm_pos[]/tm_n and
+  op1_tape_pos_set), PLAY FROM MARKER (locate + op1_seq_press_play; only from stop, no punch, no armed
+  count-in), TAPE SELECT (value 1..4 -> op1_tape_switch), INSTRUMENT SELECT (no core service yet: a toast
+  explains it once per boot).
+- Mapped CCs are taken from the core's key/encoder path (op1_midi_take_cc). Default mapping (empty user
+  config): CC 80 next, CC 81 previous, CC 82 play-from-marker, channel 1.
+
+CLAIMS
+- key:clock:white (the white encoder push in clock mode; no other plugin consumes it in 3.0.3).
+
+BUILD
+- hundekraft-plugin/build-knl.sh <path to the 3.0.3 source bundle> — packs synth_sdk/plugins/op1midi
+  with the bundle's tools/kennel/pack.py inside the bfin-elf Docker toolchain. Output: op1midi.knl.
+
+INSTALL
+- Workshop (https://hundekraft.github.io/op1-workshop/): Your plugins -> add op1midi.knl -> Update OP-1 ->
+  confirm with T1 on the OP-1 prompt. Takes effect at the confirmed restart. Removal and conflicts are
+  managed by the workshop. Save a disk-mode backup first (see install-recuperation.md in the repository).
+
+CHANGES
+- v1 (2026-10-27): first release. 16-row CC/PC mapping editor, marker jumps, play from marker,
+  tape select, settings switch, modal overlay editor. Compiled with bfin-elf-gcc 13.3.0.
+
+NOT COVERED by this license
+- The Teenage Engineering OP-1 firmware and any part of it. Copyright Teenage Engineering.
+- Hundekraft / kennel / op1r source code remains under its own NOTICE (this plugin links against its SDK
+  and imports its core services; those components keep their license terms and notices).
