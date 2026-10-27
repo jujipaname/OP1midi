@@ -1,0 +1,10 @@
+{
+  "name": "op1midi",
+  "kind": "feature",
+  "symbol": "FEATURE_op1midi",
+  "loadable": true,
+  "sources": ["op1midi.c", "mm2_core.c", "mm2_edit.c"],
+  "claims": ["key:clock:white"],
+  "author": "OP1midi",
+  "version": "1"
+}

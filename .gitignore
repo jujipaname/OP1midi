@@ -1,0 +1,17 @@
+# Firmwares propriétaires TE et dérivés (règle 3 AGENTS.md: jamais dans le dépôt)
+*.op1
+
+# Déballages / builds du firmware (contenu dérivé du firmware propriétaire)
+op1r-src/op1_246/
+op1r-src/op1_246_custom*/
+op1r-src/*.delta-state.json
+
+# Clones et environnements tiers (recréables, voir rapport-avancement.md)
+op1r-src/op1repacker/
+
+# Artefacts de build
+op1r-src/synth_sdk/build/
+op1r-src/synth_sdk/harness/build/
+op1r-src/synth_sdk/harness/out/
+mm2/build/
+__pycache__/

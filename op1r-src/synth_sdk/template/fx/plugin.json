@@ -1,0 +1,15 @@
+{
+  "name": "myfx",
+  "author": "your name",
+  "kind": "fx",
+  "symbol": "FX_myfx",
+  "sources": [
+    "myfx.c"
+  ],
+  "defaults": [
+    8000,
+    16000,
+    4000,
+    32767
+  ]
+}

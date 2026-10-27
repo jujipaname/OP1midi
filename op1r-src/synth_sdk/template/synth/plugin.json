@@ -1,0 +1,15 @@
+{
+  "name": "mysynth",
+  "author": "your name",
+  "kind": "synth",
+  "symbol": "ENGINE_mysynth",
+  "sources": [
+    "mysynth.c"
+  ],
+  "defaults": [
+    4000,
+    12000,
+    6000,
+    24000
+  ]
+}

@@ -65,3 +65,73 @@ Faire de la **page Settings embarquée** la source de vérité minimale; propose
 3. Mock des handlers: marqueur inexistant, bande absente, transport actif, switch pendant enregistrement.
 4. Régression sur copie sandbox du firmware et fixtures tape sauvegardées; aucun test d'écriture réelle sur OP-1.
 5. Vérifier que mapping désactivé ne modifie pas le comportement MIDI actuel et que les commandes destructives sont impossibles par défaut.
+
+## Design v2 — éditeur généraliste (cible : base Hundekraft 3.0.3)
+
+Spécification validée avec l'utilisateur, noyau implémenté dans `mm2/` (module portable sans
+dépendance op1r, prêt à être câblé sur le bundle Hundekraft) :
+
+- **16 lignes** de mapping `(canal, type CC/PC, numéro) → (action, valeur)`, 4 visibles, 4 pages.
+- **Éditeur** (machine à états pure, `mm2/mm2_edit.c`) : bleu = canal (1–16/ALL), vert = numéro
+  (0–127, appui = bascule CC↔PC), **blanc = éditeur** (rotation = action ; appui = édition de la
+  valeur, re-appui = validation), **rouge = curseur** (16 lignes, pagination auto), flèches 0x24/0x25
+  = pages, **Shift+Help = valider + fermer**. Rendu côté intégration : ligne du curseur en **rouge**,
+  autres en blanc.
+- **Actions initiales** : MARKER NEXT, MARKER PREV, PLAY@MARKER, TAPE SELECT (valeur 1–4),
+  INSTRUMENT SELECT (valeur 0–255, bornée par l'intégration). Liste extensible (ids constants).
+- **Accès** : page settings (Shift+Help puis T3) + rangée « MIDI MAP » (rotation blanche = ON/OFF
+  global `mmen`, appui blanc = ouvre l'éditeur).
+- **Persistance** : clés `mmen` + `mmr0..mmr15` (int32 packé : canal/type/numéro/action/valeur),
+  clés constantes (les implémentations hôte stockent le pointeur).
+- **Dispatch** : CC front ≥ 64 sans répétition, PC à chaque message, première ligne correspondante
+  gagnante, ligne `OFF` inactive, gardes marqueur via `mm2_env_query` (mode tape, arrêt, punch,
+  count-in, marqueurs présents).
+- **Hooks d'intégration** (pointeurs définis dans le module, assignés par l'hôte) :
+  `mm2_setting_get/put`, `mm2_act_next/play/tape/instr`, `mm2_env_query`. Hooks nuls = action
+  ignorée sans crash.
+- **Tests** : `mm2/mm2_test.c` (codec, persistance aller-retour, dispatch CC/PC, gardes, hooks
+  absents, éditeur complet) — **vert** avec `-fsanitize=address,undefined` et en build plain.
+
+Inconnues restantes côté bundle Hundekraft (phase 1 du portage) : chemin de réception **PC**,
+API de switch des 4 tapes, API de sélection instrument, présence de marqueurs en 3.0.3, structure
+de leur page T3.
+
+## Portage Hundekraft 3.0.3 — réalisé
+
+Les inconnues ci-dessus sont **toutes levées** (bundle source analysé) : `midi_raw` reçoit CC **et**
+PC ; `op1_tape_switch` gère les 4 tapes ; les marqueurs sont des **données partagées du core**
+(`tm_pos[]/tm_n`, remplies par le plugin `markers`) ; `op1_switch` fournit la rangée settings T3 ;
+`op1_seq_press_play` déclenche PLAY. Un plugin se compile **seul** (`.knl`) et s'installe via le
+Workshop sans rebuild du firmware. Le plugin **`op1midi.knl`** est packé (imports tous résolus,
+pack propre) — détail complet dans `rapport-avancement.md` §6. Seule limite : INSTRUMENT SELECT
+sans service core (toast d'information).
+
+## État d'implémentation MVP (27 octobre 2026, fork op1r-src dans ce dépôt)
+
+Implémenté et testé sur PC (harness `harness/run_all.py`, tout vert; aucun flash appareil):
+
+- `synth_sdk/midi/mm.c|mm.h`: mapping CC → actions `tape.marker.next` (CC défaut 80),
+  `tape.marker.previous` (81), `tape.play_from_marker` (82). Mode trigger (front montant ≥ 64, un
+  seul déclenchement), canal configurable (`mmch`: 0 = off, 1–16, 17 = all), CC consommés même si
+  une garde saute l'action. CC réservés (touches/LFO/mx/encodeurs/mixer: 1–17, 21–26, 38–43, 48–60,
+  72–79, 102–118) refusés à la charge; doublons entre actions → seul le premier agit.
+- Fil d'exécution: `midi_cc_hook` (dispatcher.c, midi_poll) marque l'action et empile la clé privée
+  `MM_KEY 0x40` (motif de `midi/mx.c`); `mm_apply` (thread KeyHandler) exécute: `tm_turn(±1024)`
+  (tape/markers.c) et `tm_locate_current()` + PLAY stock (Shift neutralisé, motif euclid).
+- Gardes: sauts de marqueur seulement en mode tape (CUR_MODE_ID 2, écran tape chargé, ≥ 1 marqueur);
+  play-from-marker seulement à l'arrêt (tape state 0), punch inactif (`pu_mode` 0), count-in inactif.
+- `tape/markers.c`: ajout `tm_locate_current()` (marqueur courant = dernier ≤ curseur + 10 ms,
+  ne bouge pas si déjà dessus; testé dans `harness/markers_test.c`).
+- Persistance: clés `mmch`/`mm0`/`mm1`/`mm2` dans `op1rsettings` (op1.db, `screens/op1r_settings.c`).
+- Page Settings (clock + T3): rangée verte « MIDI » (canal OFF/1..16/ALL), blanche « NEXT » et rouge
+  « PREV » (CC, 0 = --, wrap); CC play-from affiché en lecture seule (`PLAY n`).
+- Outil compagnon `tools/op1midi_map.py`: validation stricte du JSON (version 1, actions connues,
+  CC 0–127, réservés et doublons rejetés), affichage des valeurs appareil correspondantes, envoi des
+  CC de test via mido. L'import automatique vers l'appareil (SysEx/DB) reste à faire — pour l'instant
+  la page Settings est la source de vérité, l'outil documente les valeurs `mmch`/`mm0..2` à y saisir.
+- Écart au spec initial: PC non mappé dans ce MVP (actions tape uniquement); « play from marker »
+  replie sur PLAY simple sans relocation quand aucun marqueur ne précède le curseur.
+
+Reste avant tout essai matériel: build sandbox (Docker bfin-elf + op1repacker + `op1_246.op1`
+fourni par l'utilisateur), vérification structure/CRC de l'image, puis validation sur émulateur si
+disponible — jamais de flash sans procédure de récupération documentée.
