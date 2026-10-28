@@ -51,6 +51,10 @@ INSTALL
   managed by the workshop. Save a disk-mode backup first (see install-recuperation.md in the repository).
 
 CHANGES
+- v5.1 (2026-10-28): display polish. Slot numbers back to red (violet dropped); the white column
+  shows the row's FADE (OFF/1s/2s/8s/32s) instead of the channel; the row's channel appears in
+  the blue type column only while Shift is held (LRN keeps priority while learning). The
+  destination cell renders name + number ("MRK 11") — verified by a pixel-level stub test.
 - v5 (2026-10-28): per-slot channel and fade. Each row carries its own MIDI channel (unset =
   ALL; Shift + blue turn edits the cursor row's channel — no global channel any more) and its
   own fade (white turn edits the cursor row's fade; the fade engine uses the triggered row's

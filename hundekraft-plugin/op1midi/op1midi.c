@@ -366,7 +366,7 @@ static int input(const op1_input *in)
  * randomiser du kennel), colonnes aux couleurs des encodeurs, curseur en rouge ---- */
 static const uint8_t c_red[4] = { 0xFF, 0x4E, 0x3F, 0xFF }, c_white[4] = { 0xFF, 0xFF, 0xFF, 0xFF },
                      c_green[4] = { 0x00, 0xED, 0x95, 0xFF }, c_black[4] = { 0, 0, 0, 0xFF },
-                     c_blue[4] = { 0x4D, 0x9E, 0xFF, 0xFF }, c_violet[4] = { 0x9B, 0x5D, 0xFF, 0xFF };
+                     c_blue[4] = { 0x4D, 0x9E, 0xFF, 0xFF };
 static const uint8_t *stCol_v;                   /* couleur de la colonne type (contextuelle) */
 #define ES   OP1_Q10(5) / 2
 #define EW   0x600
@@ -460,10 +460,10 @@ static void overlay(void *r, int32_t screen)
         const uint8_t *col = cur_ ? c_black : c_white;         /* curseur: typo noire sur fond */
         const uint8_t *csrc = cur_ ? c_black : c_blue;
         const uint8_t *cdst = cur_ ? c_black : c_green;
-        const uint8_t *csl = cur_ ? c_black : c_violet;
+        const uint8_t *csl = cur_ ? c_black : c_red;
         int y = Y0 + k * DY;
         if (cur_) {                                            /* surbrillance: fond = couleur de colonne */
-            mm_cell(r, 5, 32, y, c_violet);
+            mm_cell(r, 5, 32, y, c_red);
             mm_cell(r, 32, 88, y, c_blue);
             mm_cell(r, 88, 138, y, c_blue);
             mm_cell(r, 138, 236, y, c_green);
@@ -484,7 +484,7 @@ static void overlay(void *r, int32_t screen)
         mm2_dnum_range(w->dst, &lo, &hi);
         if (hi > lo) { *e++ = ' '; put_num(e, w->dnum); }
         sf_text(r, X_DST, y, ES, b, EW, cdst);
-        sf_text(r, X_CH, y, ES, rowChDisp(w), EW, col);        /* canal de la ligne (blanc) */
+        sf_text(r, X_CH, y, ES, fade_names[w->fade], EW, col); /* fade de la ligne (blanc) */
     }
 }
 

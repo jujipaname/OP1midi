@@ -166,6 +166,8 @@ function load(){ if(!HASDOM) return; try{ const s=JSON.parse(localStorage.getIte
     dnum:r.dnum||0,fade:r.fade||0})); mmen=s.mmen; } }catch(e){} }
 
 function dnumRange(d){ return d>=1&&d<=3?[1,d===1?8:4]:d===4?[1,MRK_MAX]:[0,0]; }
+function dstTextOf(w){ const [lo,hi]=dnumRange(w.dst);
+  return hi>lo?DST_NAMES[w.dst]+" "+w.dnum:DST_NAMES[w.dst]; }
 function chName(w){ const ch=(w&&w.ch)?w.ch:17; return ch===17?"ALL":ch===0?"OFF":"CH"+ch; }
 
 /* ============ journal ============ */
@@ -362,7 +364,6 @@ function render(){ if(!HASDOM) return;
   ctx.fillStyle="#000"; ctx.fillRect(6,4,308,152);
   const hline=(x0,x1,y,c)=>seg(x0,y,x1,y,2,c);
   hline(7,313,4,C_WHITE); hline(7,313,156,C_WHITE); seg(6,4,6,156,2,C_WHITE); seg(314,4,314,156,2,C_WHITE);
-  const violet=[155,93,255];
   const cell=(x0,x1,y,c)=>{ for(let yy=y-4;yy<=y+16;yy+=2) seg(x0,yy,x1,yy,2,c); };
   const X_SL=8, X_ST=34, X_SN=90, X_DT=140, X_CH=240, Y_T=10, Y0=40, DY=26;
   sfText(X_SL,Y_T,"MIDI MAP",C_WHITE);
@@ -370,21 +371,18 @@ function render(){ if(!HASDOM) return;
   for(let k=0;k<4;k++){
     const i=page*4+k, w=rows[i], cur_=i===cur;
     const col=cur_?C_BLACK:C_WHITE, csrc=cur_?C_BLACK:C_BLUE, cdst=cur_?C_BLACK:C_GREEN,
-          csl=cur_?C_BLACK:violet, cch=cur_?C_BLACK:C_WHITE;
+          csl=cur_?C_BLACK:C_RED, cch=cur_?C_BLACK:C_GREEN;
     const y=Y0+k*DY;
-    if(cur_){ cell(5,32,y,violet); cell(32,88,y,C_BLUE); cell(88,138,y,C_BLUE);
-              cell(138,236,y,C_GREEN); cell(236,314,y,C_WHITE); }
+    if(cur_){ cell(5,32,y,C_RED); cell(32,88,y,C_BLUE); cell(88,138,y,C_BLUE);
+              cell(138,236,y,C_GREEN); cell(236,314,y,C_GREEN); }
     sfText(X_SL,y,String(i+1),csl);
     let stTxt=ST_NAMES[w.stype], stCol=csrc;
     if(cur_&&learn){ stTxt="LRN"; stCol=C_BLACK; }
     else if(cur_&&shift){ stTxt=chName(w); stCol=C_BLACK; }
     sfText(X_ST,y,stTxt,stCol);
     sfText(X_SN,y,String(w.snum),csrc);
-    const rng=dnumRange(w.dst);
-    let dstTxt=DST_NAMES[w.dst];
-    if(rng.hi>rng.lo) dstTxt+=" "+w.dnum;
-    sfText(X_DT,y,dstTxt,cdst);
-    sfText(X_CH,y,chName(w),cch);
+    sfText(X_DT,y,dstTextOf(w),cdst);
+    sfText(X_CH,y,FADE_NAMES[w.fade],cch);
   }
 }
 
@@ -461,6 +459,7 @@ if(typeof globalThis!=='undefined') globalThis.__SIM_HOOK__={
   close(){ open=false; render(); },
   turn(k,d,s){ turn(k,d,s); }, press(c,p,s){ input(c,p,s); },
   dispatch(t,n,c,v){ return dispatch(t,n,c,v); }, setShift(v){ shift=v?1:0; },
+  dstTextOf:(i)=>dstTextOf(rows[i]),
   render, rows, state(){ return {open,cur,page,learn,rows,mmen}; } };
 
 /* ============ self-tests headless (node /tmp/.../sim.js) ============ */

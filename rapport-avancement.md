@@ -303,4 +303,21 @@ Ajustements demandés après relecture du simulateur :
 
 Reste : test matériel v5, README utilisateur.
 
+## 13. v5.1 — affichages (28 octobre 2026)
+
+- **Diagnostic « chiffres de destination absents »** : la cause était le **simulateur** — sa
+  fonction render était une chimère v3/v4 (référençant `X_DN`/`mmfade`/`mmch` supprimés) qui
+  plantait à chaque rendu ; le **plugin C n'était pas touché** (la fusion `MRK 11` y est depuis
+  v5 et compile). Fix: render v5 unique + **smoke-test du rendu réel sous stub DOM**
+  (`simulator/render-smoke.js`) + vérification exacte du texte destination (`dstTextOf`:
+  « MRK 11 » / « TAPE 3 » / « -- ») — le trou de couverture render est comblé.
+- **Ajustements demandés** : colonne blanche = **fade de la ligne** (OFF/1S/2S/8S/32S) au lieu
+  du canal ; le canal de la ligne n'apparaît que **tant que Shift est tenu** (colonne type,
+  LRN prioritaire pendant le learn) ; **chiffres de slot en rouge** (violet abandonné).
+- **`op1midi.knl` v5.1** : 15 720 octets, 17 imports, 0 warning. Tests: mm2_test vert,
+  41 self-tests sim + smoke-test rendu.
+
+Reste : test matériel, README utilisateur.
+
+
 
