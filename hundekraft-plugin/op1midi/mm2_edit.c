@@ -28,6 +28,13 @@ void mm2_edit_learn_feed(int stype, int num)               /* prochain NOTE/CC/P
     learn = 0;
 }
 
+void mm2_edit_learn_feed_key(int slot)                     /* touche sound apprise (dst SND) */
+{
+    if (!open || !learn || slot < 1 || slot > 8) return;
+    mm2_row_edit(cur)->dnum = (uint8_t)slot;
+    learn = 0;
+}
+
 static int exit_key(int code)              /* modes, T1..T4, transport: quittent l'éditeur */
 {
     return (code >= 0x01 && code <= 0x09) || code == 0x15 ||

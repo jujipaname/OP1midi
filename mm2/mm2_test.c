@@ -35,7 +35,7 @@ static int last_snd, last_tape, last_mute, last_mtape, last_mlocal;
 static void act_snd(int k) { n_snd++; last_snd = k; }
 static void act_tape(int t) { n_tape++; last_tape = t; }
 static void act_mute(int t) { n_mute++; last_mute = t; }
-static void act_marker(int tape, int local) { n_marker++; last_mtape = tape; last_mlocal = local; }
+static void act_marker(int local) { n_marker++; last_mlocal = local; }
 static void act_mnext(void) { n_mnext++; }
 static void act_mprev(void) { n_mprev++; }
 static mm2_env ENV = { 1, 3, 0, 5 };       /* mode tape, arrêt (3), pas de punch, 5 marqueurs */
@@ -73,36 +73,40 @@ int main(void)
     reset();
     assert(!mm2_cc(0, 80, 127) && !mm2_pc(0, 5) && !mm2_note(0, 60, 100));
 
-    /* ---- ligne CC -> MARKER global 45: tape 2, local 14 ---- */
+    /* ---- ligne CC -> MARKER plat (ensemble partagé 1..32, tape courante) ---- */
     reset();
-    ENV.markers = 20;                                      /* assez de marqueurs pour local 14 */
+    ENV.markers = 20;
     mm2_row_edit(0)->stype = MM2_S_CC; mm2_row_edit(0)->snum = 80; mm2_row_edit(0)->dst = MM2_D_MRK;
-    mm2_row_edit(0)->dnum = 45;
+    mm2_row_edit(0)->dnum = 5;
     assert(!mm2_cc(1, 80, 127));                           /* canal 2 != 1 */
-    assert(mm2_cc(0, 80, 127) && n_marker == 1 && last_mtape == 2 && last_mlocal == 14);
+    assert(mm2_cc(0, 80, 127) && n_marker == 1 && last_mlocal == 5);
     assert(mm2_cc(0, 80, 100) && n_marker == 1);           /* tenu: pas de répétition */
     assert(mm2_cc(0, 80, 0) && mm2_cc(0, 80, 64) && n_marker == 2);
 
     /* ---- gardes marker: états / punch / marqueurs insuffisants ---- */
     reset();
-    mm2_row_edit(0)->dst = MM2_D_MRK; mm2_row_edit(0)->dnum = 40; mm2_row_edit(0)->stype = MM2_S_PC;
+    ENV.markers = 20;
+    mm2_row_edit(0)->dst = MM2_D_MRK; mm2_row_edit(0)->stype = MM2_S_PC;
     mm2_row_edit(0)->snum = 7;
+    mm2_row_edit(0)->dnum = 10;
     ENV.raw_state = 5;                                     /* enregistrement: refusé */
     assert(mm2_pc(0, 7) && n_marker == 0);
     ENV.raw_state = 6;                                     /* armé (count-in): refusé */
     assert(mm2_pc(0, 7) && n_marker == 0);
     ENV.raw_state = 10;                                    /* lecture: autorisé (fade/saut) */
-    assert(mm2_pc(0, 7) && n_marker == 1 && last_mtape == 2 && last_mlocal == 9);
+    assert(mm2_pc(0, 7) && n_marker == 1 && last_mlocal == 10);
     ENV.raw_state = 3;
     ENV.tape_mode = 0; assert(mm2_pc(0, 7) && n_marker == 1); ENV.tape_mode = 1;
     ENV.punch = 1; assert(mm2_pc(0, 7) && n_marker == 1); ENV.punch = 0;
-    mm2_row_edit(0)->dnum = 113;                           /* tape 4, local 20 (= ENV.markers) */
-    assert(mm2_pc(0, 7) && n_marker == 2 && last_mtape == 4 && last_mlocal == 20);
-    mm2_row_edit(0)->dnum = 95;                            /* tape 4, local 2 */
-    assert(mm2_pc(0, 7) && n_marker == 3 && last_mtape == 4 && last_mlocal == 2);
+    mm2_row_edit(0)->dnum = 20;                            /* == ENV.markers: la borne passe */
+    assert(mm2_pc(0, 7) && n_marker == 2 && last_mlocal == 20);
+    mm2_row_edit(0)->dnum = 33;                            /* au-delà de l'ensemble partagé: ignoré */
+    assert(mm2_pc(0, 7) && n_marker == 2);
+    ENV.markers = 40;                                      /* plus de 32 posés: la plage prime */
+    assert(mm2_pc(0, 7) && n_marker == 2);
     ENV.markers = 1;
-    mm2_row_edit(0)->dnum = 33;                            /* tape 2, local 2 > 1 marqueur: ignoré */
-    assert(mm2_pc(0, 7) && n_marker == 3);
+    mm2_row_edit(0)->dnum = 2;                             /* 2 > 1 marqueur posé: ignoré */
+    assert(mm2_pc(0, 7) && n_marker == 2);
     ENV.markers = 5;
 
     /* ---- MRK+ / MRK- ---- */
@@ -253,9 +257,19 @@ int main(void)
     assert(mm2_row_get(5)->dst == MM2_D_TAPE);             /* ligne vide: destination par défaut */
     mm2_edit_learn_feed(MM2_S_PC, 9);                      /* désarmé: rien */
     assert(mm2_row_get(5)->snum == 44);
-    /* learn sur une ligne déjà destinationnée: garde la destination */
-    mm2_edit_turn(1, -1 * MM2_DETENT, 0);                  /* ligne 5: TAPE -> SND */
+    /* learn touche sound (destination SND): le prochain T-key apprend le slot */
+    mm2_edit_turn(1, 1 * MM2_DETENT, 0);                   /* ligne 5: TAPE -> SND... */
+    mm2_edit_turn(1, -1 * MM2_DETENT, 0);                  /* ...retour TAPE (test inchangé) */
+    assert(mm2_row_get(5)->dst == MM2_D_TAPE);
+    mm2_edit_turn(1, -1 * MM2_DETENT, 0);                  /* TAPE -> SND */
     assert(mm2_row_get(5)->dst == MM2_D_SND);
+    assert(mm2_edit_key(0x3B, 1, 1) == 1 && mm2_edit_learning());
+    mm2_edit_learn_feed_key(7);                            /* l'utilisateur a pressé Shift+T3 */
+    assert(!mm2_edit_learning() && mm2_row_get(5)->dnum == 7);
+    mm2_edit_learn_feed_key(3);                            /* désarmé: rien */
+    assert(mm2_row_get(5)->dnum == 7);
+    /* learn sur une ligne déjà destinationnée: garde la destination */
+    assert(mm2_row_get(5)->dst == MM2_D_SND);              /* (déjà SND) */
     assert(mm2_edit_key(0x3B, 1, 1) == 1 && mm2_edit_learning());
     mm2_edit_learn_feed(MM2_S_NOTE, 42);
     assert(mm2_row_get(5)->stype == MM2_S_NOTE && mm2_row_get(5)->dst == MM2_D_SND);

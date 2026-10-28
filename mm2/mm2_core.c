@@ -17,7 +17,7 @@ void (*mm2_setting_put)(const char *key, int val);
 void (*mm2_act_snd)(int key);
 void (*mm2_act_tape)(int tape);
 void (*mm2_act_mute)(int track);
-void (*mm2_act_marker)(int tape, int local);
+void (*mm2_act_marker)(int local);
 void (*mm2_act_mnext)(void);
 void (*mm2_act_mprev)(void);
 void (*mm2_env_query)(mm2_env *e);
@@ -124,9 +124,8 @@ static void mm2_run(int i)
         if (!mm2_env_query || !mm2_act_marker) return;
         mm2_env_query(&e);
         if (!e.tape_mode || e.punch || (e.raw_state != 3 && e.raw_state != 10)) return;
-        int tape = (r->dnum - 1) / 31 + 1, local = (r->dnum - 1) % 31 + 1;
-        if (local > e.markers) return;                         /* pas autant de marqueurs posés */
-        mm2_act_marker(tape, local);
+        if (r->dnum > MM2_MRK_MAX || r->dnum > e.markers) return;   /* plage + marqueurs posés */
+        mm2_act_marker(r->dnum);
         return;
     }
     case MM2_D_MRP:

@@ -222,3 +222,33 @@ destination, canal/fade, learn, édition live, sorties) → **vert** (sanitizers
 
 Reste : test matériel v3 (fade audible, learn, mute, marker global), SOUND sans service core
 (évolution à demander au kennel si l'usage le veut), README.md utilisateur.
+
+## 10. v3.1 — markers plats + SOUND fonctionnel (28 octobre 2026)
+
+Décisions utilisateur (après la découverte de l'ensemble de marqueurs partagé) :
+
+- **MARKER 1–32 (plat)** : `MM2_MRK_MAX` 124 → 32 ; le n° = le n-ième marqueur **posé**, sur la
+  tape courante, **sans switch de tape** (la destination TAPE existe pour changer de tape ;
+  MRK+/MRK- naviguent). Garde renforcée au dispatch : `dnum > MM2_MRK_MAX || dnum > tm_n` →
+  ignoré (défense en profondeur même si la config écrite excède la plage). Suppression de la
+  signature `act_marker(tape, local)` → `act_marker(local)`, et du chemin cross-tape
+  (`OP1_EV_TAPE_SWITCH` handler, `sw_*`, `fading_cross`) — le fade reste : descente, saut
+  (locate+play), remontée, restauration.
+- **SOUND 1–8 fonctionnel** (idée utilisateur : « un midi learn avec les boutons de l'OP-1 ») :
+  - **Capture** : Shift+clic bleu arme le learn ; si la destination du slot courant est SND, le
+    prochain appui de touche sound (T1–T4 = slots 1–4, Shift+T1–T4 = slots 5–8 ; codes 0x06–0x09
+    vus par le hook input avant le stock) est **capturé et avalé** (rien ne bouge pendant
+    l'apprentissage) → `mm2_edit_learn_feed_key(slot)` (nouvelle API testée). Pour toute autre
+    destination, le learn capture NOTE/CC/PC comme en v3 (midi_raw ignoré si learn SND en cours).
+  - **Replay par injection** : `snd_inject(slot)` pousse dans la **file de touches stock** (R246
+    `0x01DD5044`, pointeurs `0x01DD5244/48`, byte busy `0x01DD524D`, réveil `0x019C2F04` — le
+    mécanisme même du chemin MIDI→touches du firmware, pattern prouvé par op1r `midi/mx.c`) :
+    `[SYNTH press/release]` (idempotent) + `[Shift press]` si slot 5–8 + `[T_n press/release]` +
+    `[Shift release]`. Pas de flag anti-réentrance nécessaire : les touches injectées sont des
+    touches ordinaires que notre hook laisse passer (éditeur fermé).
+- **`op1midi.knl` v3.1** : 15 436 octets, .text 7344, 457 relocations, **17 imports tous
+  présents** (`op1_toast` n'est plus importé), 0 warning (GCC 13.3.0). `mm2_test` mis à jour
+  (markers plats, borne 32, plage prime sur le compte, learn touche SND) → **vert**.
+
+Reste : test matériel v3.1 (learn touche + injection SOUND, fade, marker plat), README.md
+utilisateur, autres retours d'interface.

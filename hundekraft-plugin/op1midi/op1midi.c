@@ -11,10 +11,13 @@
  * agit ensuite sauf Shift tenu). Ligne du curseur en rouge, colonnes aux couleurs des encodeurs.
  *
  * Sources: NOTE (note-on vel > 0; note-off mappée avalée via le pipeline), CC (front >= 64),
- * PC (chaque message). Destinations: SOUND 1..8 (aucun service core: toast), TAPE 1..4
- * (op1_tape_switch), MUTE 1..4 (octet mute R246 0xFF8010A0 + màj DSP 0x01967ED0, adresses du
- * stock), MARKER global 1..124 (tape = (g-1)/31+1, local = (g-1)%31+1: l'ensemble de marqueurs
- * est partagé entre les tapes en 3.0.3), MRK+/MRK- (saut, wrap).
+ * PC (chaque message). Destinations: SOUND 1..8 (learn par touche: Shift+clic bleu arme, la
+ * prochaine touche sound T1..T4 / Shift+T1..T4 est capturée; replay par injection de touches
+ * synthétiques dans la file stock — SYNTH puis Shift+T_n, adresses R246 0x01DD5044/0x01DD5244
+ * /0x01DD5248/0x01DD524D, réveil 0x019C2F04, pattern op1r midi/mx.c), TAPE 1..4
+ * (op1_tape_switch), MUTE 1..4 (octet mute R246 0xFF8010A0 + màj DSP 0x01967ED0), MARKER 1..32
+ * (un ensemble partagé entre les tapes en 3.0.3: le n-ième marqueur, tape courante, sans
+ * switch), MRK+/MRK- (saut, wrap).
  *
  * Fade (Shift + rotation blanche dans l'éditeur: OFF/1s/2s/8s/32s): en lecture, tout saut de
  * marker fond les 4 volumes de pistes tape (mots live 0xFF801928 + gammes 0xFF8018CC, R246)
@@ -86,7 +89,7 @@ static void apply_takes(void)
 /* ---- saut de marker (main loop), avec ou sans fade ---- */
 #define TM_STEP 441                              /* 10 ms: le marqueur "sur" le curseur */
 enum { J_MARKER = 1, J_NEXT, J_PREV };           /* kind: cible fixe / résolue au silence */
-static uint8_t j_kind, j_tape, j_pending;        /* saut armé (fade) ou en attente de switch */
+static uint8_t j_kind, j_pending;                /* saut armé (fade) */
 static int32_t j_pos;
 
 static int tape_live(void) { return op1_tape_current() + 1; }
@@ -100,7 +103,7 @@ static void do_jump(int32_t pos)                 /* tape courante: locate + play
 static void jump_resolve(int32_t *pos, int *tape)          /* cible au moment du silence */
 {
     *tape = tape_live();
-    if (j_kind == J_MARKER) { *pos = j_pos; *tape = j_tape; return; }
+    if (j_kind == J_MARKER) { *pos = j_pos; return; }      /* ensemble partagé: tape courante */
     int32_t c = op1_tape_pos_get(), t = -1;
     if (j_kind == J_NEXT) {
         for (int i = 0; i < tm_n; i++) if (tm_pos[i] > c + TM_STEP) { t = tm_pos[i]; break; }
@@ -169,17 +172,14 @@ static void fade_tick(void)                      /* audio thread: 4 mots par blo
 }
 
 /* ---- hooks mm2: mise en file seulement (timer context) ---- */
+static void snd_inject(int slot);
+
 static void act_snd(int key) { pq_push(K_SND, key, 0); }
 static void act_tape(int tape) { pq_push(K_TAPE, tape, 0); }
 static void act_mute(int track) { pq_push(K_MUTE, track, 0); }
-static void act_marker(int tape, int local) { pq_push(K_MARKER, tape, local); }
+static void act_marker(int local) { pq_push(K_MARKER, local, 0); }
 static void act_mnext(void) { pq_push(K_MNEXT, 0, 0); }
 static void act_mprev(void) { pq_push(K_MPREV, 0, 0); }
-
-static uint8_t warned_nosvc;
-static uint8_t sw_tape, sw_pos;                  /* saut après switch de tape (main loop) */
-static int32_t sw_pos_s;
-static uint8_t fading_cross;                     /* fade-in à lancer après le switch+locate */
 
 static void start_fade_in(void)
 {
@@ -188,13 +188,49 @@ static void start_fade_in(void)
     fade_st = 2;
 }
 
+/* ---- injection de touches (adresses R246, pattern op1r midi/mx.c): sélection de sound key ---- */
+#define KQ_DATA   ((volatile uint16_t *)0x01DD5044)
+#define KQ_RD     ((volatile uint32_t *)0x01DD5244)
+#define KQ_WR     ((volatile uint32_t *)0x01DD5248)
+#define KQ_BUSY   (*(volatile uint8_t *)0x01DD524D)
+#define KQ_WAKE   ((void (*)(void))0x019C2F04)
+
+static void inject_keys(const uint8_t *seq, int n)          /* seq: {code, pressed} x n */
+{
+    uint32_t m;
+    __asm__ volatile ("cli %0;" : "=d"(m));
+    for (int i = 0; i < n; i++) {
+        volatile uint32_t *rd = KQ_RD, *wr = KQ_WR;
+        uint32_t w = *wr, nx = (w + 1) & 0xFF;
+        if (nx == *rd || KQ_BUSY) break;                    /* plein ou ISR mid-push: jette le reste */
+        KQ_DATA[w] = (uint16_t)(seq[i * 2] | seq[i * 2 + 1] << 8);
+        *wr = nx;
+    }
+    __asm__ volatile ("sti %0;" : : "d"(m));
+    KQ_WAKE();
+}
+
+static void snd_inject(int slot)                 /* sélection de sound key par touches synthétiques */
+{
+    uint8_t seq[10];                             /* {code, pressed} x 5 */
+    int n = 0;
+    seq[n++] = 0x02; seq[n++] = 1;               /* SYNTH press (idempotent si déjà en synth) */
+    seq[n++] = 0x02; seq[n++] = 0;               /* SYNTH release */
+    if (slot > 4) { seq[n++] = 0x26; seq[n++] = 1; }           /* Shift press (slots 5..8) */
+    int tk = 0x05 + (slot > 4 ? slot - 4 : slot);              /* T1..T4 = 0x06..0x09 */
+    seq[n++] = (uint8_t)tk; seq[n++] = 1;
+    seq[n++] = (uint8_t)tk; seq[n++] = 0;
+    if (slot > 4) { seq[n++] = 0x26; seq[n++] = 0; }           /* Shift release */
+    inject_keys(seq, n / 2);
+}
+
 static void drain(void)                          /* main loop */
 {
     while (pq_rd != pq_wr) {
         pend_t p = pq[pq_rd];
         pq_rd = (uint8_t)((pq_rd + 1) & 7);
         if (p.kind == K_SND) {
-            if (!warned_nosvc) { op1_toast("MIDI MAP: NO CORE SERVICE"); warned_nosvc = 1; }
+            if (p.a >= 1 && p.a <= 8) snd_inject(p.a);
         } else if (p.kind == K_TAPE) {
             if (!pu_mode) op1_tape_switch(p.a);  /* erreurs rec/disk ignorées */
         } else if (p.kind == K_MUTE) {
@@ -210,8 +246,7 @@ static void drain(void)                          /* main loop */
             if (e.raw_state == 10 && mm2_fade()) {               /* en lecture: fade si réglé */
                 if (fade_st) continue;                           /* fade en cours: ignore */
                 j_kind = p.kind == K_MARKER ? J_MARKER : (p.kind == K_MNEXT ? J_NEXT : J_PREV);
-                j_tape = (uint8_t)p.a;
-                j_pos = p.kind == K_MARKER ? marker_pos(p.b) : 0;
+                j_pos = p.kind == K_MARKER ? marker_pos(p.a) : 0;
                 if (j_kind == J_MARKER && j_pos < 0) continue;
                 j_pending = 1;
                 fade_start();
@@ -219,10 +254,8 @@ static void drain(void)                          /* main loop */
             }
             /* immédiat (arrêté, ou lecture sans fade) */
             if (p.kind == K_MARKER) {
-                int32_t pos = marker_pos(p.b);
-                if (pos < 0) continue;
-                if (p.a != tape_live()) { sw_tape = (uint8_t)p.a; sw_pos_s = pos; sw_pos = 1; op1_tape_switch(p.a); }
-                else do_jump(pos);
+                int32_t pos = marker_pos(p.a);
+                if (pos >= 0) do_jump(pos);          /* ensemble partagé: tape courante */
             } else {
                 int32_t pos; int tape;
                 j_kind = p.kind == K_MNEXT ? J_NEXT : J_PREV;
@@ -238,10 +271,8 @@ static void drain(void)                          /* main loop */
         if (j_pending && e.tape_mode && !e.punch && e.raw_state == 10) {
             int32_t pos; int tape;
             jump_resolve(&pos, &tape);
-            if (pos >= 0) {
-                if (tape != tape_live()) { sw_tape = (uint8_t)tape; sw_pos_s = pos; sw_pos = 1; fading_cross = 1; op1_tape_switch(tape); }
-                else { do_jump(pos); start_fade_in(); }
-            } else fade_cancel();
+            if (pos >= 0) { do_jump(pos); start_fade_in(); }
+            else fade_cancel();
         } else fade_cancel();                    /* état changé (STOP...): restaurer sans sauter */
         j_pending = 0;
     }
@@ -254,7 +285,8 @@ static void midi_raw(const uint8_t *m, int len)
     wire();
     if (len < 2) return;
     int st = m[0] & 0xF0;
-    if (mm2_edit_learning()) {                   /* learn: le premier NOTE/CC/PC est capturé */
+    if (mm2_edit_learning()) {                   /* learn: MIDI seulement si la destination != SND */
+        if (mm2_row_get(mm2_edit_cursor())->dst == MM2_D_SND) return;   /* learn touche en cours */
         if (st == 0xB0 && len >= 3) { mm2_edit_learn_feed(MM2_S_CC, m[1]); op1_midi_take_cc(m[1], 1); takes_dirty = 1; }
         else if (st == 0xC0) mm2_edit_learn_feed(MM2_S_PC, m[1]);
         else if (st == 0x90 && len >= 3 && m[2] > 0) mm2_edit_learn_feed(MM2_S_NOTE, m[1]);
@@ -297,6 +329,11 @@ static int input(const op1_input *in)
         if (in->pressed) seen_down |= (uint64_t)1 << (in->code & 63);
         else if (!(seen_down >> (in->code & 63) & 1)) return 0;   /* release tenue avant l'ouverture */
         seen_down &= ~((uint64_t)1 << (in->code & 63));
+        if (mm2_edit_learning() && in->code >= 0x06 && in->code <= 0x09 &&
+            mm2_row_get(mm2_edit_cursor())->dst == MM2_D_SND) {
+            mm2_edit_learn_feed_key(in->code - 0x05 + (in->shift ? 4 : 0));   /* touche sound apprise */
+            return 1;                                 /* avalée: rien ne bouge pendant l'apprentissage */
+        }
         int was = mm2_edit_view();
         int consumed = mm2_edit_key(in->code, in->pressed, in->shift);
         if (was && !mm2_edit_view()) takes_dirty = 1;             /* validé: re-appliquer les takes */
@@ -426,12 +463,6 @@ static void event(int id, int32_t arg)
         takes_dirty = 1;
     } else if (id == OP1_EV_MODE) {
         cur_mode = (uint8_t)arg;
-    } else if (id == OP1_EV_TAPE_SWITCH) {
-        if (!(arg >> 16 & 1) && sw_pos) {        /* après le switch: locate + play */
-            sw_pos = 0;
-            do_jump(sw_pos_s);
-            if (fading_cross) { fading_cross = 0; start_fade_in(); }
-        }
     } else if (id == OP1_EV_SERVICE) {
         drain();
     }

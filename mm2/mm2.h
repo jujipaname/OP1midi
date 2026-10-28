@@ -33,7 +33,7 @@ enum { MM2_D_OFF = 0, MM2_D_SND = 1, MM2_D_TAPE = 2, MM2_D_MUTE = 3,
        MM2_D_MRK = 4, MM2_D_MRP = 5, MM2_D_MRM = 6 };
 #define MM2_S_MAX   2
 #define MM2_D_MAX   6
-#define MM2_MRK_MAX 124               /* markers globaux (4 tapes x 31) */
+#define MM2_MRK_MAX 32                /* un ensemble partagé de marqueurs (core 3.0.3) */
 
 typedef struct { uint8_t stype, snum, dst, dnum; } mm2_row;
 /* stype: MM2_S_*; snum 0..127; dst: MM2_D_*; dnum 0..255 (plage validée par destination:
@@ -45,7 +45,7 @@ extern void (*mm2_setting_put)(const char *key, int val);
 extern void (*mm2_act_snd)(int key);        /* 1..8 (aucun service core connu: toast côté intégration) */
 extern void (*mm2_act_tape)(int tape);      /* 1..4 (op1_tape_switch; erreurs ignorées) */
 extern void (*mm2_act_mute)(int track);     /* 1..4: toggle mute */
-extern void (*mm2_act_marker)(int tape, int local);   /* marker global: switch + locate + play */
+extern void (*mm2_act_marker)(int local);   /* n-ième marqueur (ensemble partagé), tape courante */
 extern void (*mm2_act_mnext)(void);         /* marker suivant */
 extern void (*mm2_act_mprev)(void);         /* marker précédent */
 typedef struct { int tape_mode, raw_state, punch, markers; } mm2_env;
@@ -76,8 +76,9 @@ int  mm2_edit_key(int code, int pressed, int shift);   /* 1 = consommé; 0 = sor
 void mm2_edit_turn(int knob, int delta, int shift);   /* 0 bleu, 1 vert, 2 blanc, 3 rouge */
 int  mm2_edit_cursor(void);                 /* 0..15 */
 int  mm2_edit_page(void);                   /* 0..3 */
-int  mm2_edit_learning(void);               /* MIDI learn armé */
-void mm2_edit_learn_feed(int stype, int num);          /* prochain événement appris -> ligne curseur */
+int  mm2_edit_learning(void);               /* learn armé (MIDI, ou touche sound si dst SND) */
+void mm2_edit_learn_feed(int stype, int num);          /* prochain NOTE/CC/PC appris -> ligne curseur */
+void mm2_edit_learn_feed_key(int slot);     /* prochaine touche sound apprise (dst SND): slot 1..8 */
 const mm2_row *mm2_row_get(int i);          /* 0..15, lecture seule */
 mm2_row *mm2_row_edit(int i);               /* écriture (éditeur / intégration) */
 

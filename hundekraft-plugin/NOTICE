@@ -51,6 +51,16 @@ INSTALL
   managed by the workshop. Save a disk-mode backup first (see install-recuperation.md in the repository).
 
 CHANGES
+- v3.1 (2026-10-28): MARKER destination is now flat 1..32 — in core 3.0.3 the marker set is
+  SHARED across the four tapes, so the number is the n-th placed marker on the current tape and
+  no tape switch happens (use the TAPE destination to change tapes; MRK+/MRK- still navigate).
+  SOUND 1..8 is now functional without a core service: Shift + blue press in the editor arms a
+  learn whose capture depends on the row's destination — for SOUND the next sound-key press
+  (T1..T4, Shift+T1..T4 for slots 5..8) is captured (the key is swallowed, nothing moves);
+  playback injects synthetic keys into the stock key queue (R246 addresses 0x01DD5044 /
+  0x01DD5244 / 0x01DD5248 / 0x01DD524D, wake 0x019C2F04 — the same mechanism the firmware's
+  MIDI-key path uses): SYNTH press/release, then Shift + T_n for slots 5..8. MIDI learn still
+  captures NOTE/CC/PC for every other destination. 17 imports, all present in kn_exports.c.
 - v3 (2026-10-28): new mapping model per the user's v3 spec (midi-spec.md, gui-layout.md).
   Sources: NOTE (note-on vel > 0; mapped notes are swallowed in the note pipeline, MIDI source
   only), CC (rising edge >= 64), PC (every message). Destinations: SOUND 1..8 (no core service
