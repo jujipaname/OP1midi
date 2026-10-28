@@ -346,6 +346,27 @@ Reste : choix de police (propositions faites), test matériel, README utilisateu
 
 Reste : test matériel (rendu de la police native, key learn), README utilisateur.
 
+## 18. v6.4 — le vrai fix de la rangée + toast de version (28 octobre 2026)
+
+L'utilisateur confirme : aucune différence visible v6.2 → v6.3. Enquête : le binaire AVAIT
+changé (hash knl différent, adresse Shift 0x01DD7F78 présente en demi-mots 01DD/7F78),
+mais le fix de la rangée était **inopérant** : l'appel `op1_switch` restait dans la branche
+BOOT_DONE (op1midi.c:570) et `sw_pending` n'était jamais mis à 1 → v6.3 = v6.2 de
+l'extérieur. Impossibilité de savoir si l'utilisateur exécutait v6.3.
+
+1. **Fix réel** : BOOT_DONE ne fait plus que `sw_pending = 1` ; registration au **1er
+   OP1_EV_SERVICE** (kn_core.c:110, kn_event SERVICE inconditionnel après le kn_event
+   BOOT_DONE du 1er passage) → strictement après le BOOT_DONE de midiseq → MIDI SEQ 1re
+   rangée (verte, ligne 2 visuelle), MIDI MAP 2e (blanche, ligne 3 visuelle).
+2. **Toast de version** : `op1_toast("midi map v6.4")` au même endroit, une fois au boot →
+   preuve immédiate de la version qui tourne (à retirer en v6.5 après confirmation).
+3. Doublons obsolètes `hundekraft-plugin/op1midi/mm2_*.c` supprimés (le build copie depuis
+   `mm2/`, source canonique).
+- **`op1midi.knl` v6.4** : 16 032 o, 17 imports, 0 erreur. mm2_test ok.
+
+Reste : test hardware v6.4 (toast visible, rangée blanche ligne 3), README utilisateur.
+
+
 ## 17. v6.3 — fixes hardware (28 octobre 2026)
 
 Retour du test OP-1 v6.2 : MIDI MAP sur la 2ᵉ ligne (vert), Shift inopérant, seul le mute

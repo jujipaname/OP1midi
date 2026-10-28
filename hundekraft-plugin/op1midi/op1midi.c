@@ -2,7 +2,8 @@
  * Copyright (C) 2026 OP1midi. GPL-3.0-or-later with the OP-1 firmware permission (see LICENSE and NOTICE).
  *
  * Entree: Shift + Help (mode clock) -> T3 (settings) -> rangée "MIDI MAP" (op1_switch enregistré
- * à OP1_EV_BOOT_DONE après les built-ins: 2e rangée = blanche): tourner = ON/OFF global, appui
+ * enregistré au 1er OP1_EV_SERVICE après le BOOT_DONE (après midiseq): 2e rangée = blanche):
+ * tourner = ON/OFF global, appui
  * blanc = ouvre l'éditeur.
  * Éditeur v4 (overlay modal sur voile + panneau noir):
  *   bleu: clic = type source (NOTE/CC/PC); Shift+clic = learn ON/OFF; rotation = n° source;
@@ -567,15 +568,18 @@ static void event(int id, int32_t arg)
 {
     wire();
     if (id == OP1_EV_BOOT_DONE) {
-        op1_switch(FEAT, "MIDI MAP");            /* après les built-ins: 2e rangée = blanche */
+        sw_pending = 1;                          /* v6.4: PAS de registration ici — kn_event(BOOT_DONE) nous
+                                                  * livre avant midiseq, on serait 1re rangée (verte) */
         mm2_load();
         takes_dirty = 1;
     } else if (id == OP1_EV_MODE) {
         cur_mode = (uint8_t)arg;
     } else if (id == OP1_EV_SERVICE) {
-        if (sw_pending) {                        /* après le BOOT_DONE de midiseq: 2e rangée = blanche */
+        if (sw_pending) {                        /* 1er SERVICE: kn_event(BOOT_DONE) est terminé, midiseq est
+                                                  * déjà enregistré → nous 2e rangée (blanche) */
             sw_pending = 0;
             op1_switch(FEAT, "MIDI MAP");
+            op1_toast("midi map v6.4");          /* preuve de version sur l'appareil (retirée à v6.5) */
         }
         drain();
     }
