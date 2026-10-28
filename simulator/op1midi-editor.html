@@ -289,13 +289,13 @@ function run(i){ const r=rows[i], e=envQuery();
         log("MUTE piste "+r.dnum+": toggle -> "+(bars.mute[r.dnum-1]?"muet":"audible"),"act"); drawBars(); } return;
     case D_MRK: if(!e.tape_mode||e.punch||(e.raw!==3&&e.raw!==10)){ log("MRK "+r.dnum+": ignoré (garde)","ign"); return; }
       if(r.dnum>MRK_MAX||r.dnum>e.markers){ log("MRK "+r.dnum+": ignoré (plage/marqueurs posés)","ign"); return; }
-      jump(e,undefined,r.dnum); return;
+      jump(e,undefined,r.dnum,r.fade); return;
     case D_MRP: case D_MRM: if(!e.tape_mode||e.punch||(e.raw!==3&&e.raw!==10)||!e.markers){
-        log("MRK"+(r.dst===D_MRP?"+":"-")+": ignoré (garde)","ign"); return; } jump(e,r.dst===D_MRP?1:-1); return;
+        log("MRK"+(r.dst===D_MRP?"+":"-")+": ignoré (garde)","ign"); return; } jump(e,r.dst===D_MRP?1:-1,r.fade); return;
   }
 }
-function jump(e,dir,target){                            /* miroir du moteur de fade (glue) */
-  const playing=e.raw===10, f=FADE_SECS[mmfade];
+function jump(e,dir,target,fade){                       /* miroir du moteur de fade (glue) */
+  const playing=e.raw===10, f=FADE_SECS[fade?fade:0];
   const what=dir===undefined?("marker "+target):"prochain/précédent marqueur (au curseur)";
   if(playing&&f>0){
     if(bars.st){ log("saut ignoré: fade déjà en cours","ign"); return; }
@@ -362,22 +362,29 @@ function render(){ if(!HASDOM) return;
   ctx.fillStyle="#000"; ctx.fillRect(6,4,308,152);
   const hline=(x0,x1,y,c)=>seg(x0,y,x1,y,2,c);
   hline(7,313,4,C_WHITE); hline(7,313,156,C_WHITE); seg(6,4,6,156,2,C_WHITE); seg(314,4,314,156,2,C_WHITE);
+  const violet=[155,93,255];
+  const cell=(x0,x1,y,c)=>{ for(let yy=y-4;yy<=y+16;yy+=2) seg(x0,yy,x1,yy,2,c); };
   const X_SL=8, X_ST=34, X_SN=90, X_DT=140, X_CH=240, Y_T=10, Y0=40, DY=26;
   sfText(X_SL,Y_T,"MIDI MAP",C_WHITE);
-  sfText(130,Y_T,"P"+(page+1)+"/4",C_WHITE);
-  sfText(174,Y_T,"CH:"+chName(),C_GREEN);
-  sfText(238,Y_T,"F:"+FADE_NAMES[mmfade],C_GREEN);
-  if(learn) sfText(286,Y_T,"LRN",C_RED);
+  sfText(238,Y_T,"P"+(page+1)+"/4",C_WHITE);
   for(let k=0;k<4;k++){
     const i=page*4+k, w=rows[i], cur_=i===cur;
-    const col=cur_?C_RED:C_WHITE, csrc=cur_?C_RED:C_BLUE, cdst=cur_?C_RED:C_GREEN;
+    const col=cur_?C_BLACK:C_WHITE, csrc=cur_?C_BLACK:C_BLUE, cdst=cur_?C_BLACK:C_GREEN,
+          csl=cur_?C_BLACK:violet, cch=cur_?C_BLACK:C_WHITE;
     const y=Y0+k*DY;
-    sfText(X_SL,y,String(i+1),C_RED);
-    sfText(X_ST,y,ST_NAMES[w.stype],csrc);
+    if(cur_){ cell(5,32,y,violet); cell(32,88,y,C_BLUE); cell(88,138,y,C_BLUE);
+              cell(138,236,y,C_GREEN); cell(236,314,y,C_WHITE); }
+    sfText(X_SL,y,String(i+1),csl);
+    let stTxt=ST_NAMES[w.stype], stCol=csrc;
+    if(cur_&&learn){ stTxt="LRN"; stCol=C_BLACK; }
+    else if(cur_&&shift){ stTxt=chName(w); stCol=C_BLACK; }
+    sfText(X_ST,y,stTxt,stCol);
     sfText(X_SN,y,String(w.snum),csrc);
-    sfText(X_DT,y,DST_NAMES[w.dst],cdst);
     const rng=dnumRange(w.dst);
-    sfText(X_DN,y,rng.hi>rng.lo?String(w.dnum):"--",col);
+    let dstTxt=DST_NAMES[w.dst];
+    if(rng.hi>rng.lo) dstTxt+=" "+w.dnum;
+    sfText(X_DT,y,dstTxt,cdst);
+    sfText(X_CH,y,chName(w),cch);
   }
 }
 
@@ -438,7 +445,7 @@ document.getElementById('dmk').onchange=e=>{ dev.markers=+e.target.value; };
 document.getElementById('dmen').onchange=e=>{ mmen=e.target.checked?1:0; save();
   log("switch settings T3: MIDI MAP "+(mmen?"ON":"OFF"),"act"); render(); };
 document.getElementById('reset').onclick=()=>{ localStorage.removeItem('op1midi-sim');
-  rows=Array.from({length:16},()=>({stype:0,snum:0,dst:0,dnum:0})); mmch=1; mmfade=0; mmen=1;
+  rows=Array.from({length:16},()=>({ch:0,stype:0,snum:0,dst:0,dnum:0,fade:0})); mmen=1;
   document.getElementById('dmen').checked=true; render(); log("config réinitialisée","act"); };
 document.getElementById('msend').onclick=()=>{ dispatch(document.getElementById('mtype').value,
   +document.getElementById('mnum').value, +document.getElementById('mch').value,
@@ -447,6 +454,14 @@ let lastT=0; const loop=t=>{ const dt=(t-lastT)/1000; lastT=t; fadeFrame(dt); re
 requestAnimationFrame(loop);
 log("simulateur prêt — miroir mm2 v3.1; mode clock + appui blanc pour ouvrir l'éditeur","act");
 }
+
+/* hook de test (stub DOM en node): smoke-test du rendu réel */
+if(typeof globalThis!=='undefined') globalThis.__SIM_HOOK__={
+  open(){ open=true; cur=page=learn=0; render(); },
+  close(){ open=false; render(); },
+  turn(k,d,s){ turn(k,d,s); }, press(c,p,s){ input(c,p,s); },
+  dispatch(t,n,c,v){ return dispatch(t,n,c,v); }, setShift(v){ shift=v?1:0; },
+  render, rows, state(){ return {open,cur,page,learn,rows,mmen}; } };
 
 /* ============ self-tests headless (node /tmp/.../sim.js) ============ */
 if(!HASDOM){
