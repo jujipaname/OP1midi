@@ -185,3 +185,40 @@ Limites documentées : INSTRUMENT SELECT sans service core (toast) ; test matér
 
 Reste : re-test matériel de la v2 (rangée settings, lisibilité, sorties), README.md côté
 utilisateur, autres retours d'interface (à venir).
+
+## 9. v3 — nouveau modèle de mapping (28 octobre 2026)
+
+Spec utilisateur (`midi-spec.md` réécrit + `gui-layout.md`), décisions validées en plan :
+
+- **Sources** : NOTE (note-on vel > 0 ; note-off mappée avalée ; les notes mappées sont aussi
+  **avalées dans le pipeline de notes** via `op1_note_source()` — le synthé ne les joue pas),
+  CC (front ≥ 64), PC (chaque message). Canal global `mmch` (0 off / 1–16 / 17 ALL).
+- **Destinations** : SOUND 1–8 (**aucun service core** de sélection de slot — vérifié dans
+  `op1_feature_sound.h`/`kn_exports.c` → toast une fois par boot), TAPE 1–4 (`op1_tape_switch` :
+  le core arrête la lecture lui-même ; erreurs rec/disk ignorées), MUTE 1–4 (toggle byte R246
+  `0xFF8010A0+t` + màj DSP `0x01967ED0` — adresses stock, absentes du SDK kennel, documentées),
+  MARKER global 1–124 (formule tape/locale ; ⚠️ **en 3.0.3 l'ensemble de marqueurs est partagé
+  entre les 4 tapes** — un seul row DB `op1rmarkers`, pas de reload au switch : vérifié dans
+  `markers.c` — la formule résout mécaniquement, sémantique à valider sur hardware), MRK+/MRK-
+  (conservés, décision utilisateur).
+- **Fade** (Shift+rotation blanche dans l'éditeur, `mmfade` OFF/1s/2s/8s/32s) : en lecture, saut
+  de marker → descente des 4 volumes de pistes tape (mots live R246 `0xFF801928`/gammes
+  `0xFF8018CC`) pilotée par `tick` (thread audio) → saut au silence sur la main loop (cross-tape :
+  locate à `OP1_EV_TAPE_SWITCH` after) → remontée → restauration exacte ; STOP pendant fade =
+  saut annulé + restauration.
+- **MIDI learn** : Shift+clic bleu dans l'éditeur → `LRN` en en-tête → le prochain NOTE/CC/PC
+  écrit la source de la ligne sous le curseur (destination par défaut TAPE si ligne vide) ; le CC
+  appris est immédiatement « taken ».
+- **Éditeur v3** : édition live (plus de mode validation), colonnes aux couleurs des encodeurs
+  (n° de slot en rouge, source bleu, destination vert, n° blanc), curseur tout rouge, en-tête
+  `MIDI MAP pX/4 CH:x F:x (LRN)`.
+- **Persistance versionnée** : `mmv`=3 (ancien format → lignes remises à zéro), lignes re-packées
+  4 champs (20 bits), `mmch` réexposé (Shift+rotation verte, décision utilisateur).
+
+**`op1midi.knl` v3** : 15 664 octets, .text 7240, 481 relocations, **17 imports tous présents**
+(`op1_note_source/on/off` et `op1_tape_current` ajoutés), 0 warning (GCC 13.3.0). `mm2_test` v3
+réécrit (codec, migration mmv, dispatch 3 sources, gardes par état, formule marker, plages
+destination, canal/fade, learn, édition live, sorties) → **vert** (sanitizers + plain).
+
+Reste : test matériel v3 (fade audible, learn, mute, marker global), SOUND sans service core
+(évolution à demander au kennel si l'usage le veut), README.md utilisateur.

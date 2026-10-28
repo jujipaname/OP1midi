@@ -51,6 +51,25 @@ INSTALL
   managed by the workshop. Save a disk-mode backup first (see install-recuperation.md in the repository).
 
 CHANGES
+- v3 (2026-10-28): new mapping model per the user's v3 spec (midi-spec.md, gui-layout.md).
+  Sources: NOTE (note-on vel > 0; mapped notes are swallowed in the note pipeline, MIDI source
+  only), CC (rising edge >= 64), PC (every message). Destinations: SOUND 1..8 (no core service
+  yet: a toast explains it once per boot), TAPE 1..4 (op1_tape_switch; the core stops playback
+  itself; recording/disk errors ignored), MUTE 1..4 (toggle of the R246 mute byte 0xFF8010A0+t
+  plus the DSP refresh call 0x01967ED0 — stock addresses, not exported services), MARKER global
+  1..124 (tape = (g-1)/31+1, local = (g-1)%31+1; note: in core 3.0.3 the marker set is SHARED
+  across the four tapes — the switch + local index still resolve, semantics to validate),
+  MRK+ / MRK- (kept from v2). Global MIDI channel back in the UI: Shift + green turn in the
+  editor cycles OFF/1..16/ALL (setting mmch). Fade (Shift + white turn in the editor, setting
+  mmfade: OFF/1s/2s/8s/32s): while playing, every marker jump fades the four tape track volumes
+  (live words 0xFF801928 + ranges 0xFF8018CC, R246) to zero, jumps at silence (tape switch and
+  locate run on the main loop; a cross-tape jump locates at OP1_EV_TAPE_SWITCH after), fades back
+  and restores exactly; STOP during a fade cancels the jump and restores. MIDI learn: Shift +
+  blue press in the editor arms it (LRN shown), the next NOTE/CC/PC writes the source of the
+  cursor row (default destination TAPE on an empty row; the learned CC is taken at once).
+  Editor v3: live editing (no validation mode), columns in the encoder colours, cursor row red,
+  header MIDI MAP pX/4 CH:x F:x (LRN while learning). Settings format versioned by 'mmv' = 3
+  (older rows reset). 17 imports, all present in kn_exports.c.
 - v2 (2026-10-28): hardware-test fixes. Settings row registered at OP1_EV_BOOT_DONE (after the
   built-ins) so MIDI SEQ keeps the green row and MIDI MAP takes the white one; the editor overlay
   now draws a full-screen fade plus an opaque black panel with a white border before its text
