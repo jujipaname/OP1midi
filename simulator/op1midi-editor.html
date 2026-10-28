@@ -153,7 +153,7 @@ const DST_NAMES=["--","SND","TAPE","MUT","MRK","M+","M-"];
 const ST_NAMES=["NOTE","CC","PC"];
 const FADE_NAMES=["OFF","1S","2S","8S","32S"], FADE_SECS=[0,1,2,8,32];
 let rows = Array.from({length:16},()=>({ch:0,stype:0,snum:0,dst:0,dnum:0,fade:0,fmask:0}));
-let cur=0, page=0, open=false, learn=false;
+let cur=0, page=0, open=false, learn=0;   /* 0 aucun, 1 MIDI, 2 touche */
 let mmen=1;
 let acc=[0,0,0,0];
 let shift=false;
@@ -168,7 +168,7 @@ function load(){ if(!HASDOM) return; try{ const s=JSON.parse(localStorage.getIte
 function dnumRange(d){ return d>=1&&d<=3?[1,d===1?8:4]:d===4?[1,MRK_MAX]:[0,0]; }
 function dstTextOf(w){ const [lo,hi]=dnumRange(w.dst);
   return hi>lo?DST_NAMES[w.dst]+" "+w.dnum:DST_NAMES[w.dst]; }
-function chName(w){ const ch=(w&&w.ch)?w.ch:17; return ch===17?"ALL":ch===0?"OFF":"CH"+ch; }
+function chName(w){ const ch=(w&&w.ch)?w.ch:17; return ch===17?"all":ch===0?"off":"ch "+ch; }
 
 /* ============ journal ============ */
 const LOG=[];
@@ -185,7 +185,7 @@ function key(code, pressed, sh){
   if(!open){
     if(code===61&&pressed){
       if(dev.mode!=='clock'){ log("appui blanc ignoré (mode "+dev.mode+" — il faut clock)","ign"); return 1; }
-      open=true; cur=page=learn=0; acc=[0,0,0,0];
+      open=true; cur=page=0; learn=0; acc=[0,0,0,0];
       log("éditeur ouvert (appui blanc"+(sh?", Shift tenu":"")+")","act"); render(); return 1; }
     if(code>=59&&code<=62&&pressed) log("push "+keyName(code)+": rien (éditeur fermé)","ign");
     return 0;
@@ -193,21 +193,39 @@ function key(code, pressed, sh){
   if(!pressed) return 1;                            /* modal: releases avalées */
   if(code===0){ close(1); log("Help: validé + fermé","act"); return 1; }
   if(exitKey(code)){ close(1);
-    log("sortie: "+keyName(code)+(sh?" (Shift: consommée)":" -> la touche agit"),"act"); return sh?1:0; }
+    log("sortie: touche "+keyName(code)+(sh?" (Shift: consommée)":" -> la touche agit"),"act");
+    return sh?1:0; }
   if(code===36){ page=page?page-1:3; cur=page*4; render(); return 1; }
   if(code===37){ page=page===3?0:page+1; cur=page*4; render(); return 1; }
-  if(code===60){                                    /* vert: type / Shift: learn on-off */
-    if(sh){ learn=!learn; log(learn?"LEARN armé (dst "+DST_NAMES[rows[cur].dst]+")":"LEARN désarmé","act"); render(); return 1; }
+  if(code===60){                                    /* vert: type / Shift+clic = learn MIDI on-off / clic seul = sortie */
+    if(sh){ learn=learn===1?0:1; log(learn===1?"LEARN MIDI armé (dst "+DST_NAMES[rows[cur].dst]+")":"LEARN désarmé","act"); render(); return 1; }
+    if(learn===1){ learn=0; log("clic vert seul: sortie du learn MIDI","act"); render(); return 1; }
     rows[cur].stype = rows[cur].stype===S_MAX?0:rows[cur].stype+1;
     render(); return 1;
   }
-  if(code===61){                                    /* blanc: Shift = supprimer la ligne */
+  if(code===61){                                    /* blanc: Shift+clic = key learn on-off / clic seul = sortie */
+    if(sh){ if(rows[cur].dst===D_SND){ learn=learn===2?0:2;
+        log(learn===2?"KEY LEARN armé (dst snd)":"KEY LEARN désarmé","act"); }
+      else log("Shift+clic blanc hors snd: pas de key learn","ign");
+      render(); return 1; }
+    if(learn===2){ learn=0; log("clic blanc seul: sortie du key learn","act"); render(); return 1; }
+    return 1;                                       /* rien d'autre au blanc sans shift (modal) */
+  }
+  if(code===62){                                    /* rouge: Shift = supprimer la ligne */
     if(sh) delRow();
     return 1;
   }
   return 1;                                         /* autres touches: modal (avalées) */
 }
-function close(sv){ if(sv) save(); open=false; learn=false; render(); }
+
+/* touches transport: l'état simulé suit (comme le vrai hardware) */
+function transportKey(code){
+  if(code===34){ dev.raw=10; log("PLAY -> tape en lecture (état 10)","act"); }
+  else if(code===35){ dev.raw=3; log("STOP -> tape arrêtée (état 3)","act"); }
+  else if(code===33){ dev.raw=dev.raw===5?3:5; log("REC -> "+(dev.raw===5?"rec (5)":"arrêt (3)"),"act"); }
+  document.getElementById('dstate').value=String(dev.raw);
+}
+function close(sv){ if(sv) save(); open=false; learn=0; render(); }
 const clampN=(v,a,b)=>Math.max(a,Math.min(b,v));
 function flatPos(r){ if(r.dst===1) return clampN(r.dnum,1,8); if(r.dst===2) return 8+clampN(r.dnum,1,4);
   if(r.dst===3) return 12+clampN(r.dnum,1,4); if(r.dst===4) return 16+clampN(r.dnum,1,32);
@@ -229,10 +247,12 @@ function turn(knob, delta, sh){
     else { while(st>0){ r.snum=r.snum>=127?0:r.snum+1; st--; }
            while(st<0){ r.snum=r.snum?r.snum-1:127; st++; } } }
   else if(knob===2){                                          /* blanc: destination en liste plate */
+    //console.error("DBG turn2 avant: dst=",r.dst,"dnum=",r.dnum,"pos=",flatPos(r),"st=",Math.trunc(acc[knob]/1024));
     let pos=flatPos(r);
     while(st>0){ pos=pos>=50?0:pos+1; st--; }
     while(st<0){ pos=pos<=0?50:pos-1; st++; }
     flatSet(r,pos);
+    //console.error("DBG turn2 après: pos=",pos,"dst=",r.dst,"dnum=",r.dnum);
     if(!r.ch) r.ch=17;                                        /* ligne nouvellement assignée */
   }
   else if(knob===3){ if(sh){ const FM=["ALL","1","2","3","4","1+2","3+4"];
@@ -245,11 +265,11 @@ function turn(knob, delta, sh){
   render(); save();
 }
 /* ---- learn ---- */
-function learnFeedMidi(stype,num){ if(!open||!learn||stype>S_MAX||num<0||num>127) return;
-  const r=rows[cur]; r.stype=stype; r.snum=num; if(!r.dst) r.dst=D_TAPE; if(!r.ch) r.ch=17; learn=false;
+function learnFeedMidi(stype,num){ if(!open||learn!==1||stype>S_MAX||num<0||num>127) return;
+  const r=rows[cur]; r.stype=stype; r.snum=num; if(!r.dst) r.dst=D_TAPE; if(!r.ch) r.ch=17; learn=0;
   log("LEARN: source "+ST_NAMES[stype]+" "+num+" -> slot "+(cur+1),"act"); render(); save(); }
-function learnFeedKey(slot){ if(!open||!learn||slot<1||slot>8) return;
-  rows[cur].dnum=slot; learn=false;
+function learnFeedKey(slot){ if(!open||learn!==2||slot<1||slot>8) return;
+  rows[cur].dnum=slot; learn=0;
   log("LEARN: touche sound slot "+slot+" -> slot "+(cur+1),"act"); render(); save(); }
 
 /* ---- miroir du hook input du plugin (op1midi.c): ouverture, learn touche, modal ---- */
@@ -293,7 +313,7 @@ function run(i){ const r=rows[i], e=envQuery();
         else log("SWITCH TAPE "+r.dnum,"act"); } return;
     case D_MUTE: if(r.dnum>=1&&r.dnum<=4){
         const fm=FM_TRACKS[r.fmask||0];
-        if(e.raw===10&&r.fade>0&&!fadeAnim.st){
+        if(e.raw===10&&r.fade>0&&!bars.st){
           startFadeAnim(r.fade,fm);
           log("MUTE piste "+r.dnum+" AVEC FADE "+FADE_NAMES[r.fade]+" (pistes "+fm+") -> toggle au silence","fade");
           fadeAnim.onSilence=()=>{ bars.mute[r.dnum-1]^=1;
@@ -301,11 +321,16 @@ function run(i){ const r=rows[i], e=envQuery();
         } else { bars.mute[r.dnum-1]^=1;
           log("MUTE piste "+r.dnum+": toggle -> "+(bars.mute[r.dnum-1]?"muet":"audible"),"act"); }
         drawBars(); } return;
-    case D_MRK: if(!e.tape_mode||e.punch||(e.raw!==3&&e.raw!==10)){ log("MRK "+r.dnum+": ignoré (garde)","ign"); return; }
-      if(r.dnum>MRK_MAX||r.dnum>e.markers){ log("MRK "+r.dnum+": ignoré (plage/marqueurs posés)","ign"); return; }
+    case D_MRK: if(!e.tape_mode){ log("MRK "+r.dnum+": ignoré (mode "+dev.mode+" — il faut tape)","ign"); return; }
+      if(e.punch){ log("MRK "+r.dnum+": ignoré (punch actif)","ign"); return; }
+      if(e.raw!==3&&e.raw!==10){ log("MRK "+r.dnum+": ignoré (tape "+(e.raw===5?"rec":e.raw===6?"armée":"état "+e.raw)+")","ign"); return; }
+      if(r.dnum>MRK_MAX){ log("MRK "+r.dnum+": ignoré (au-delà de 32)","ign"); return; }
+      if(r.dnum>e.markers){ log("MRK "+r.dnum+": ignoré ("+e.markers+" marqueur(s) posé(s))","ign"); return; }
       jump(e,undefined,r.dnum,r.fade,FM_TRACKS[r.fmask||0]); return;
-    case D_MRP: case D_MRM: if(!e.tape_mode||e.punch||(e.raw!==3&&e.raw!==10)||!e.markers){
-        log("MRK"+(r.dst===D_MRP?"+":"-")+": ignoré (garde)","ign"); return; }
+    case D_MRP: case D_MRM: if(!e.tape_mode){ log("MRK"+(r.dst===D_MRP?"+":"-")+": ignoré (mode "+dev.mode+")","ign"); return; }
+      if(e.punch){ log("MRK"+(r.dst===D_MRP?"+":"-")+": ignoré (punch actif)","ign"); return; }
+      if(e.raw!==3&&e.raw!==10){ log("MRK"+(r.dst===D_MRP?"+":"-")+": ignoré (tape non arrêtée/lecture)","ign"); return; }
+      if(!e.markers){ log("MRK"+(r.dst===D_MRP?"+":"-")+": ignoré (aucun marqueur)","ign"); return; }
       jump(e,r.dst===D_MRP?1:-1,r.fade,FM_TRACKS[r.fmask||0]); return;
   }
 }
@@ -316,7 +341,7 @@ function jump(e,dir,target,fade,tracks){                       /* miroir du mote
   const what=dir===undefined?("marker "+target):"prochain/précédent marqueur (au curseur)";
   if(playing&&f>0){
     if(bars.st){ log("saut ignoré: fade déjà en cours","ign"); return; }
-    startFadeAnim(f,tr);
+    startFadeAnim(f,tracks);
     log("FADE OUT "+f+"s -> saut ("+what+") -> FADE IN "+f+"s","fade");
   } else {
     log("SAUT immédiat: "+what+" + PLAY","act");
@@ -345,8 +370,8 @@ function dispatch(type,num,ch,val){
 const bars={ vol:[80,60,90,70], mute:[0,0,0,0], disp:[80,60,90,70], st:0, t:0, dur:0, tracks:[0,1,2,3] };
 function startFadeAnim(secs,tr){ bars.st=1; bars.t=0; bars.dur=secs;
   bars.tracks=tr||[0,1,2,3]; bars.from=[...bars.vol]; }
-function fadeFrame(dt){ if(!HASDOM||!bars.st) return;
-  const sp=document.getElementById('x10').checked?60:1;
+function fadeFrame(dt){ if(!bars.st) return;
+  const sp=(HASDOM&&document.getElementById('x10').checked)?60:1;
   bars.t+=dt*sp;
   const p=Math.min(1,bars.t/bars.dur);
   for(let t=0;t<4;t++){ if(bars.mute[t]){ bars.disp[t]=0; continue; }
@@ -376,9 +401,11 @@ function render(){ if(!HASDOM) return;
       if(f) for(const g of f[2]) seg(x+g[0]*S, y+g[1]*S, x+g[2]*S, y+g[3]*S, 1.5, c);
       x += (ch==='1'||ch==='.'?4:6)*S; } };
   ctx.fillStyle="#000"; ctx.fillRect(0,0,320,160);
-  if(!open){ sfText(8,60,"MIDI MAP",C_WHITE);
-    sfText(8,90,mmen?"ACTIF (settings T3)":"INACTIF",mmen?C_GREEN:C_RED);
-    sfText(8,120,"BLANC: OUVRIR L'EDITEUR",C_WHITE); return; }
+  const ntext=(x,y,t,c,px=11)=>{ ctx.fillStyle=css(c); ctx.font="600 "+px+"px system-ui,sans-serif";
+    ctx.textBaseline="top"; ctx.fillText(t,x,y); };
+  if(!open){ ntext(8,60,"midi map",C_WHITE);
+    ntext(8,90,mmen?"actif (settings T3)":"inactif",mmen?C_GREEN:C_RED);
+    ntext(8,120,"blanc: ouvrir l'éditeur",C_WHITE); return; }
   ctx.fillStyle="#000"; ctx.fillRect(6,4,308,152);
   const hline=(x0,x1,y,c)=>seg(x0,y,x1,y,2,c);
   hline(7,313,4,C_WHITE); hline(7,313,156,C_WHITE); seg(6,4,6,156,2,C_WHITE); seg(314,4,314,156,2,C_WHITE);
@@ -449,7 +476,7 @@ function modeAction(c){ return {2:"mode synth",3:"mode drum",4:"mode tape",5:"mo
   1:"métronome",0:"help/clock"}[c]||"?"; }
 KEYS.forEach(([lbl,code])=>{ const b=document.createElement('button'); b.className='k'; b.textContent=lbl;
   b.onclick=()=>{ const wasOpen=open; const consumed=input(code,1,shift);
-    if(!wasOpen&&!consumed&&code!==0) log("touche "+keyName(code)+": stock ("+modeAction(code)+")","ign"); };
+    if(!wasOpen&&!consumed&&code!==0){ transportKey(code); log("touche "+keyName(code)+": stock ("+modeAction(code)+")","ign"); } };
   keysEl.appendChild(b); });
 window.addEventListener('keydown',e=>{ if(e.key==='Shift'){ shift=true; shBtn.classList.add('shift-on'); }
   if(e.key==='ArrowLeft') input(36,1,shift); if(e.key==='ArrowRight') input(37,1,shift); });
@@ -485,6 +512,7 @@ if(!HASDOM){
   let n=0; const A=(c,m)=>{ if(!c){ console.error("FAIL:",m); process.exit(1); } n++; };
   dev.mode='clock'; dev.raw=3; dev.punch=0; dev.markers=5;
   A(input(61,1,false)===1&&open===true,"ouverture: appui blanc en clock");
+  A(learn===0,"état initial: pas de learn");
   turn(0,6*1024,false); A(cur===6&&page===1,"bleu +6: slot 7 page 2");
   turn(0,-6*1024,false); A(cur===0,"bleu -6: retour slot 1");
   turn(1,3*1024,false); A(rows[cur].snum===3,"vert: snum 3");
@@ -503,21 +531,30 @@ if(!HASDOM){
   turn(3,4*1024,false); A(rows[cur].fade===0,"rouge +4: fade wrap -> 0");
   turn(3,-1*1024,false); A(rows[cur].fade===4,"rouge -1: fade 0->32s");
   turn(3,1*1024,false); A(rows[cur].fade===0,"retour OFF");
-  turn(1,1*1024,true); A(rows[cur].ch===1,"Shift+vert: canal ALL->1");
+  turn(1,1*1024,true); A(rows[cur].ch===1,"Shift+vert rot: canal ALL->1");
   turn(1,16*1024,true); A(rows[cur].ch===17,"canal: 1->...->ALL (16 crans)");
   turn(1,1*1024,true); A(rows[cur].ch===1,"canal: ALL->1 (wrap)");
   turn(1,-1*1024,true); A(rows[cur].ch===17,"canal: 1->ALL (sens arrière)");
-  input(60,1,true); A(learn===true,"Shift+clic vert: learn armé");
-  input(60,1,true); A(learn===false,"Shift+clic vert: learn désarmé (toggle)");
-  input(60,1,true); A(learn===true,"réarmé");
-  learnFeedMidi(1,44); A(!learn&&rows[cur].snum===44&&rows[cur].stype===1,"learn capture CC44");
+  /* learn MIDI: Shift+clic vert arme, clic vert seul désarme */
+  input(60,1,true); A(learn===1,"learn MIDI armé");
+  input(60,1,true); A(learn===0,"learn MIDI désarmé (toggle)");
+  input(60,1,true); A(learn===1,"réarmé");
+  learnFeedMidi(1,44); A(learn===0&&rows[cur].snum===44&&rows[cur].stype===1,"learn capture CC44");
   A(rows[cur].dst===D_SND&&rows[cur].ch===17,"learn: garde dst + canal");
-  input(60,1,true); A(learn===true,"learn réarmé (touche)");
-  learnFeedKey(7); A(!learn&&rows[cur].dnum===7,"learn touche: slot 7");
-  input(61,1,true); A(rows[cur].dst===0&&rows[cur].snum===0&&rows[cur].stype===0&&rows[cur].dnum===0&&
-    rows[cur].ch===0&&rows[cur].fade===0,"Shift+clic blanc: ligne supprimée (tout à zéro)");
-  input(61,1,false); A(open===true,"release blanc: avalée (modal)");
-  input(62,1,false); A(open===true,"rouge clic sans shift: avalé (modal)");
+  /* key learn: Shift+clic blanc arme (dst snd), clic blanc seul désarme */
+  input(61,1,true); A(learn===2,"KEY LEARN armé (Shift+clic blanc)");
+  learnFeedKey(7); A(learn===0&&rows[cur].dnum===7,"learn touche: slot 7");
+  input(61,1,true); A(learn===2,"KEY LEARN réarmé");
+  input(61,1,false); A(learn===0,"clic blanc SEUL: sortie du key learn");
+  /* sortir de SND (le dnum est 7): +2 -> TAPE 1, puis Shift+clic blanc hors SND: rien */
+  turn(2,2*1024,false); A(rows[cur].dst===D_TAPE&&rows[cur].dnum===1,"vert +2: SND7->TAPE 1 (hors SND)");
+  input(61,1,true); A(learn!==2,"Shift+clic blanc hors SND: pas de key learn");
+  turn(2,-2*1024,false); A(rows[cur].dst===D_SND&&rows[cur].dnum===7,"retour SND 7");
+  /* Shift+clic rouge: supprimer */
+  input(62,1,true); A(rows[cur].dst===0&&rows[cur].snum===0&&rows[cur].stype===0&&rows[cur].dnum===0&&
+    rows[cur].ch===0&&rows[cur].fade===0&&rows[cur].fmask===0,"Shift+clic rouge: ligne supprimée (tout à zéro)");
+  input(62,1,false); A(open===true,"release rouge: avalée (modal)");
+  input(61,1,false); A(open===true,"blanc clic sans shift: avalé (modal)");
   input(59,1,false); A(open===true,"bleu clic sans shift: avalé (modal)");
   turn(0,6*1024,false); A(cur===6&&page===1,"curseur +6: slot 7 page 2");
   input(36,1,false); A(page===0&&cur===0,"flèche gauche: page 1");
@@ -525,30 +562,30 @@ if(!HASDOM){
   input(61,1,false); A(open===true,"réouverture");
   A(input(4,1,false)===0&&!open,"sortie TAPE sans shift: passthrough");
   input(61,1,false); A(input(4,1,true)===1&&!open,"sortie TAPE avec shift: consommée");
-  /* Shift + rouge: masque de pistes (ALL,1,2,3,4,1+2,3+4) */
-  input(61,1,false); A(open===true,"réouverture (test mask)");
-  A(rows[cur].fmask===0,"mask par défaut ALL");
-  turn(3,1*1024,true); A(rows[cur].fmask===1,"mask ALL->1");
-  turn(3,1*1024,true); A(rows[cur].fmask===2,"mask 1->2");
-  turn(3,1*1024,true); A(rows[cur].fmask===3,"mask 2->3");
-  turn(3,1*1024,true); A(rows[cur].fmask===4,"mask 3->4");
-  turn(3,1*1024,true); A(rows[cur].fmask===5,"mask 4->1+2");
-  turn(3,1*1024,true); A(rows[cur].fmask===6,"mask 1+2->3+4");
-  turn(3,1*1024,true); A(rows[cur].fmask===0,"mask 3+4->ALL (wrap)");
-  turn(3,-1*1024,true); A(rows[cur].fmask===6,"mask ALL-1->3+4");
-  turn(3,1*1024,true); A(rows[cur].fmask===0,"retour ALL");
-  /* dispatch v5 inchangé: canal par ligne */
-  open=false; dev.raw=3; dev.punch=0;
+  /* dispatch v5: canal par ligne + fade par ligne + masque */
+  open=false; dev.mode='tape'; dev.raw=3; dev.punch=0;
   rows[0]={ch:0,stype:1,snum:80,dst:D_TAPE,dnum:2,fade:0,fmask:5};
   A(dispatch("CC",80,6,127)===true,"ch unset=ALL: canal 6 consommé");
   rows[0].ch=4; A(dispatch("CC",80,6,0)===false,"canal 6 ignoré (ligne ch 4)");
   A(dispatch("CC",80,4,0)===true&&dispatch("CC",80,4,127)===true,"canal 4: front déclenche (TAPE)");
-  rows[0].ch=17; rows[1]={ch:2,stype:1,snum:80,dst:D_MUTE,dnum:3,fade:2};
-  A(dispatch("CC",80,2,0)===true,"ligne 0 (ALL) d'abord: consommé");
-  A(bars.mute[2]===0,"ligne 1 pas atteinte (première ligne gagnante)");
-  rows[0].dst=0;
-  A(dispatch("CC",80,2,0)===true&&dispatch("CC",80,2,127)===true&&bars.mute[2]===1,
-    "ligne 0 OFF: ligne 1 (canal 2) MUTE 3 togglé");
+  rows[0].ch=17; rows[0].dst=D_MRK; rows[0].dnum=2; rows[0].fade=2; rows[0].fmask=5;
+  dev.raw=10;                                                        /* lecture: fade */
+  A(dispatch("CC",80,2,0)===true,"MRK 2 val 0: consommé (réarme le front)");
+  A(dispatch("CC",80,2,127)===true,"MRK 2 val 127: front -> FADE OUT armé");
+  A(bars.st===1&&bars.tracks.length===2,"fade actif sur 2 pistes");
+  bars.t=bars.dur; fadeFrame(0.01);
+  A(bars.st===2,"SAUT au silence (FADE IN armé)");
+  bars.t=bars.dur; fadeFrame(0.01);
+  A(bars.st===0,"FADE IN terminé: volumes restaurés");
+  dev.raw=3;
+  rows[0].dst=D_MUTE; rows[0].dnum=3; rows[0].fade=2; rows[0].fmask=5;
+  A(dispatch("CC",80,2,0)===true,"MUTE 3 val 0: consommé (réarme)");
+  A(dispatch("CC",80,2,127)===true,"MUTE 3 val 127: front -> FADE armé");
+  bars.t=bars.dur; fadeFrame(0.01);
+  A(bars.mute[2]===1,"silence: MUTE 3 togglé");
+  bars.t=bars.dur; fadeFrame(0.01);
+  A(bars.st===0,"MUTE fade terminé");
+  dev.raw=3;
   console.log("self-test: "+n+" vérifications OK");
 }
 </script>

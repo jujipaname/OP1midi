@@ -51,6 +51,16 @@ INSTALL
   managed by the workshop. Save a disk-mode backup first (see install-recuperation.md in the repository).
 
 CHANGES
+- v6.2 (2026-10-28): NATIVE R246 font for the editor overlay (firmware Text objects, built once
+  on the graphics thread, drawn with the stock font — lowercase supported: "mrk 11", "2s", "ch 5",
+  "all"). Learn split into two states: MIDI learn (Shift + green click arms, green click alone
+  disarms) and KEY learn for the SOUND destination (Shift + white click arms when the row's
+  destination is snd, white click alone disarms; while armed every pressed key is traced via
+  toast and the T1..T4 / Shift+T1..T4 keys set the slot). Shift + red click deletes the row
+  (moved back from white). Simulator: text drawn with a browser font as an approximation of the
+  native one; transport keys (PLAY/STOP/REC) now drive the simulated tape state; guard rejections
+  name the exact reason (mode, punch, tape state, marker count); the fade simulation runs
+  headless too.
 - v6.1 (2026-10-28): Shift + red turn selects WHICH TRACKS the fade affects: ALL, 1, 2, 3, 4,
   1+2, 3+4 (per row, MM2_FM_*; setting packed in the row, 0 = ALL). The fade engine only ramps
   the masked tracks; a MUTE action with a fade now ramps down, toggles at silence and ramps back

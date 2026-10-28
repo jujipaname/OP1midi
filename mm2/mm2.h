@@ -81,7 +81,8 @@ int  mm2_edit_key(int code, int pressed, int shift);   /* 1 = consommé; 0 = sor
 void mm2_edit_turn(int knob, int delta, int shift);   /* 0 bleu, 1 vert, 2 blanc, 3 rouge */
 int  mm2_edit_cursor(void);                 /* 0..15 */
 int  mm2_edit_page(void);                   /* 0..3 */
-int  mm2_edit_learning(void);               /* learn armé (MIDI, ou touche sound si dst SND) */
+enum { MM2_L_NONE = 0, MM2_L_MIDI = 1, MM2_L_KEY = 2 };
+int  mm2_edit_learn_state(void);            /* MM2_L_*: learn MIDI / learn touche / aucun */
 void mm2_edit_learn_feed(int stype, int num);          /* prochain NOTE/CC/PC appris -> ligne curseur */
 void mm2_edit_learn_feed_key(int slot);     /* prochaine touche sound apprise (dst SND): slot 1..8 */
 void mm2_edit_delete(void);                 /* Shift + clic rouge: ligne -> OFF, champs à zéro */

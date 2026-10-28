@@ -13,19 +13,19 @@
 
 mm2_row *mm2_row_edit(int i);              /* mm2_core.c */
 
-static uint8_t cur, page, learn, open;
+static uint8_t cur, page, learn, open;                 /* learn: MM2_L_* (0/1/2) */
 static int acc[4];
 
-void mm2_edit_open(void) { open = 1; cur = page = learn = 0; for (int i = 0; i < 4; i++) acc[i] = 0; }
-void mm2_edit_close(int save) { if (save) mm2_save(); open = 0; learn = 0; }
+void mm2_edit_open(void) { open = 1; cur = page = 0; learn = MM2_L_NONE; for (int i = 0; i < 4; i++) acc[i] = 0; }
+void mm2_edit_close(int save) { if (save) mm2_save(); open = 0; learn = MM2_L_NONE; }
 int mm2_edit_view(void) { return open; }
 int mm2_edit_cursor(void) { return cur; }
 int mm2_edit_page(void) { return page; }
-int mm2_edit_learning(void) { return open && learn; }
+int mm2_edit_learn_state(void) { return open ? learn : MM2_L_NONE; }
 
 void mm2_edit_learn_feed(int stype, int num)               /* prochain NOTE/CC/PC appris */
 {
-    if (!open || !learn || stype > MM2_S_MAX || num < 0 || num > 127) return;
+    if (!open || learn != MM2_L_MIDI || stype > MM2_S_MAX || num < 0 || num > 127) return;
     mm2_row *r = mm2_row_edit(cur);
     r->stype = (uint8_t)stype;
     r->snum = (uint8_t)num;
@@ -36,7 +36,7 @@ void mm2_edit_learn_feed(int stype, int num)               /* prochain NOTE/CC/P
 
 void mm2_edit_learn_feed_key(int slot)                     /* touche sound apprise (dst SND) */
 {
-    if (!open || !learn || slot < 1 || slot > 8) return;
+    if (!open || learn != MM2_L_KEY || slot < 1 || slot > 8) return;
     mm2_row_edit(cur)->dnum = (uint8_t)slot;
     learn = 0;
 }
@@ -64,13 +64,22 @@ int mm2_edit_key(int code, int pressed, int shift)
     }
     if (code == 0x24) { page = (uint8_t)(page ? page - 1 : 3); cur = (uint8_t)(page * 4); return 1; }
     if (code == 0x25) { page = (uint8_t)(page == 3 ? 0 : page + 1); cur = (uint8_t)(page * 4); return 1; }
-    if (code == 0x3C) {                                                /* vert: type / Shift: learn on-off */
-        if (shift) { learn = (uint8_t)(learn ^ 1); return 1; }
+    if (code == 0x3C) {                       /* vert: type / Shift+clic = learn MIDI on-off */
+        if (shift) { learn = learn == MM2_L_MIDI ? MM2_L_NONE : MM2_L_MIDI; return 1; }
+        if (learn == MM2_L_MIDI) { learn = MM2_L_NONE; return 1; }   /* clic seul: sortie du learn */
         mm2_row *r = mm2_row_edit(cur);
         r->stype = (uint8_t)(r->stype == MM2_S_MAX ? MM2_S_NOTE : r->stype + 1);
         return 1;
     }
-    if (code == 0x3D) {                                                /* blanc: Shift = supprimer */
+    if (code == 0x3D) {                       /* blanc: Shift+clic = learn touche / clic = sortie */
+        if (shift) {
+            if (mm2_row_get(cur)->dst == MM2_D_SND) learn = learn == MM2_L_KEY ? MM2_L_NONE : MM2_L_KEY;
+            return 1;                          /* hors SND: rien (la destination n'est pas une touche) */
+        }
+        if (learn == MM2_L_KEY) { learn = MM2_L_NONE; return 1; }    /* clic seul: sortie du learn */
+        return 1;                          /* rien d'autre au blanc sans shift (modal) */
+    }
+    if (code == 0x3E) {                                                /* rouge: Shift = supprimer */
         if (shift) mm2_edit_delete();
         return 1;
     }

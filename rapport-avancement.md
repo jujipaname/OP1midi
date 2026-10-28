@@ -323,6 +323,30 @@ delete déplacé sur blanc) ; simulateur : **46 self-tests verts** + smoke rendu
 
 Reste : choix de police (propositions faites), test matériel, README utilisateur.
 
+## 16. v6.2 — police native + key learn + diagnostics sim (28 octobre 2026)
+
+- **Police native R246** dans l'overlay (choix utilisateur option 1): objets Text du firmware
+  (`op1_text_ctor/set/draw`, OP1_TEXT_SIZE 0xA4, pattern `screens/sysmon.c`), construits une fois
+  au premier rendu (thread graphique), dessinés avec `ident` — **minuscules supportées**
+  ("mrk 11", "2s", "ch 5", "all" — la demande de lisibilité des secondes). 34 objets (titre,
+  page, 4 lignes × 4 cellules × {colorée, noire}) ≈ 5,6 Ko de BSS. Simulateur: approximation
+  par `fillText` (fonte navigateur) — le rendu exact reste à valider sur hardware.
+- **Learn en deux états** (`MM2_L_NONE/MIDI/KEY`): Shift+clic **vert** arme/bascule le learn
+  MIDI; **clic vert seul** le désarme (plus besoin de Shift pour sortir). Shift+clic **blanc**
+  arme le **key learn** quand la destination du slot est SND; **clic blanc seul** le désarme.
+  Pendant le key learn: **toutes les touches pressées sont tracées** (toast), les touches sound
+  (T1–T4 / Shift+T1–T4) règlent le slot, le reste est avalé sans action.
+- **Shift+clic rouge = supprimer la ligne** (retour; Shift+clic blanc est désormais l'armement
+  du key learn).
+- **Diagnostics simulateur** (la cause du « pas de fade » de l'utilisateur): les touches
+  transport (PLAY/STOP/REC) pilotent maintenant l'état tape simulé; les rejets de garde
+  nomment la raison exacte (mode, punch, état tape, nombre de marqueurs).
+- **`op1midi.knl` v6.2** : 16 940 octets, .bss 328+Text, 17 imports, 0 warning. Tests: mm2_test
+  vert (états de learn), simulateur **58 self-tests verts** + smoke rendu.
+
+Reste : test matériel (rendu de la police native, key learn), README utilisateur.
+
+
 ## 15. v6.1 — masque de pistes du fade + fix de build (28 octobre 2026)
 
 - **Shift + rotation rouge = pistes du fade** (par ligne): ALL → 1 → 2 → 3 → 4 → 1+2 → 3+4 →
