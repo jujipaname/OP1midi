@@ -346,6 +346,27 @@ Reste : choix de police (propositions faites), test matériel, README utilisateu
 
 Reste : test matériel (rendu de la police native, key learn), README utilisateur.
 
+## 19. v6.5 — diagnostic Shift sur l'appareil (28 octobre 2026)
+
+v6.4 confirmée sur hardware (rangée MIDI MAP à la bonne place) mais le Shift reste mort.
+Analyse statique du core 3.0.3 : le hook `.hook_keyev` (0x019C2D3E, KeyHandler::process_queue)
+est sur le dispatch commun, AVANT le routage stock on_key/on_key_shift (KEY_DISPATCH
+0x019B6C74, (code, pressed)) → les touches Shiftées atteignent kn_features_input, et le
+champ in->shift livré EST l'octet 0x01DD7F78 (kn_core.c:138) — la même valeur que notre
+lecture directe. midiseq (feature) utilise in->shift (Shift: mute). Tout devrait marcher.
+
+Donc: débogage empirique. L'éditeur affiche en bas du panneau une ligne de diagnostic:
+- **S** = octet 0x01DD7F78 lu au rendu (1 = shift vu)
+- **E** = champ shift du dernier événement livré à input()
+- **A** = octet 0x019D7C6C (candidat alternatif kn_save.c, en hex)
+- **k** = 6 derniers événements: code hex + état (+ appui/haut, - relâché/bas, v encodeur
+  bas; bit 0x80 = encodeur) — montre si l'appui Shift (son vrai code) arrive et ce qui suit.
+Le toast de boot v6.4 est retiré. Ligne diag à retirer en v6.6 une fois la source identifiée.
+- **`op1midi.knl` v6.5** : 16 916 o. mm2_test ok (core inchangé).
+
+Reste: rapport du user sur la ligne diag, puis fix du shift, README utilisateur.
+
+
 ## 18. v6.4 — le vrai fix de la rangée + toast de version (28 octobre 2026)
 
 L'utilisateur confirme : aucune différence visible v6.2 → v6.3. Enquête : le binaire AVAIT
