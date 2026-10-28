@@ -12,12 +12,14 @@
  *
  * Éditeur (mm2_edit.c): machine à états pure, sans rendu. Rendu côté intégration: colonnes aux
  * couleurs des encodeurs, ligne du curseur en rouge.
- *   bleu: clic = cycle type source, rotation = n° source; Shift+clic = MIDI learn
- *   vert: rotation = destination (SND TAPE MUT MRK M+ M- OFF), Shift+rotation = canal global
- *   blanc: rotation = n° de destination; Shift+rotation = cycle du fade
- *   rouge: rotation = curseur (16 lignes, la page suit); flèches 0x24/0x25 = pages
- *   Shift + Help (0x00 + shift) = valider + fermer; touches de mode/T/transport = quitter
- *   (sauvegarde systématique; sans Shift la touche agit ensuite: retour 0). */
+ *   bleu: clic = cycle type source; Shift+clic = learn on/off; rotation = n° source;
+ *         Shift+rotation = canal global (colonne type du curseur l'affiche tant que Shift tenu;
+ *         learn armé, elle affiche LRN tant que rien n'est capturé)
+ *   vert: rotation = n° de destination (SND 1..8, TAPE 1..4, MUTE 1..4, MRK 1..32)
+ *   blanc: rotation = fade (OFF/1s/2s/8s/32s, plus de Shift)
+ *   rouge: rotation = destination (SND TAPE MUT MRK M+ M- OFF); Shift+clic = supprimer la ligne
+ *   flèches 0x24/0x25 = pages; Shift + Help (0x00) = valider + fermer; touches de
+ *   mode/T/transport = quitter (sauvegarde systématique; sans Shift la touche agit: retour 0). */
 #ifndef MM2_H
 #define MM2_H
 #include <stdint.h>
@@ -79,6 +81,7 @@ int  mm2_edit_page(void);                   /* 0..3 */
 int  mm2_edit_learning(void);               /* learn armé (MIDI, ou touche sound si dst SND) */
 void mm2_edit_learn_feed(int stype, int num);          /* prochain NOTE/CC/PC appris -> ligne curseur */
 void mm2_edit_learn_feed_key(int slot);     /* prochaine touche sound apprise (dst SND): slot 1..8 */
+void mm2_edit_delete(void);                 /* Shift + clic rouge: ligne -> OFF, champs à zéro */
 const mm2_row *mm2_row_get(int i);          /* 0..15, lecture seule */
 mm2_row *mm2_row_edit(int i);               /* écriture (éditeur / intégration) */
 

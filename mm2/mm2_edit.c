@@ -1,9 +1,13 @@
 /* Copyright (C) 2026 OP1midi. GPL-3.0-or-later with the OP-1 firmware permission (see LICENSE and NOTICE). */
-/* MM2 éditeur v3: machine à états pure (pas de rendu). Voir mm2.h.
- * Édition live (pas de mode édition): bleu clic = type source / Shift+clic = MIDI learn,
- * bleu rotation = n° source, vert rotation = destination / Shift = canal global,
- * blanc rotation = n° destination / Shift = cycle fade, rouge = curseur.
- * Rendu côté intégration: colonnes aux couleurs des encodeurs, ligne du curseur en rouge. */
+/* MM2 éditeur v4: machine à états pure (pas de rendu). Voir mm2.h.
+ * Édition live (pas de mode édition):
+ *   bleu: clic = type source / Shift+clic = learn on-off; rotation = n° source / Shift = canal
+ *   vert: rotation = destination + n° en liste plate (OFF, SND 1..8, TAPE 1..4, MUTE 1..4,
+ *         MRK 1..32, M+, M- — les 4 tapes et les 32 markers défilent)
+ *   blanc: rotation = fade (plus de Shift)
+ *   rouge: rotation = curseur (16 slots, la page suit) / Shift+clic = supprimer la ligne
+ * Rendu côté intégration: colonnes aux couleurs des encodeurs, curseur en rouge; tant que Shift
+ * est tenu, la colonne type du curseur affiche le canal global; learn armé, elle affiche LRN. */
 #include "mm2.h"
 
 mm2_row *mm2_row_edit(int i);              /* mm2_core.c */
@@ -35,6 +39,13 @@ void mm2_edit_learn_feed_key(int slot)                     /* touche sound appri
     learn = 0;
 }
 
+void mm2_edit_delete(void)                                 /* Shift + clic rouge: ligne -> OFF */
+{
+    if (!open) return;
+    mm2_row *r = mm2_row_edit(cur);
+    r->stype = 0; r->snum = 0; r->dst = MM2_D_OFF; r->dnum = 0;
+}
+
 static int exit_key(int code)              /* modes, T1..T4, transport: quittent l'éditeur */
 {
     return (code >= 0x01 && code <= 0x09) || code == 0x15 ||
@@ -51,13 +62,40 @@ int mm2_edit_key(int code, int pressed, int shift)
     }
     if (code == 0x24) { page = (uint8_t)(page ? page - 1 : 3); cur = (uint8_t)(page * 4); return 1; }
     if (code == 0x25) { page = (uint8_t)(page == 3 ? 0 : page + 1); cur = (uint8_t)(page * 4); return 1; }
-    if (code == 0x3B) {                                                /* bleu: type / Shift: learn */
-        if (shift) { learn = 1; return 1; }
+    if (code == 0x3B) {                                                /* bleu: type / Shift: learn on-off */
+        if (shift) { learn = (uint8_t)(learn ^ 1); return 1; }
         mm2_row *r = mm2_row_edit(cur);
         r->stype = (uint8_t)(r->stype == MM2_S_MAX ? MM2_S_NOTE : r->stype + 1);
         return 1;
     }
+    if (code == 0x3E) {                                                /* rouge: Shift = supprimer */
+        if (shift) mm2_edit_delete();
+        return 1;
+    }
     return 0;                                                          /* avalé par l'intégration (modal) */
+}
+
+/* liste plate des destinations: OFF, SND 1..8, TAPE 1..4, MUTE 1..4, MRK 1..32, M+, M- (0..50) */
+#define FLAT_TOTAL 50
+static int flat_pos(const mm2_row *r)
+{
+    if (r->dst == MM2_D_SND) { int n = r->dnum < 1 ? 1 : r->dnum > 8 ? 8 : r->dnum; return n; }
+    if (r->dst == MM2_D_TAPE) { int n = r->dnum < 1 ? 1 : r->dnum > 4 ? 4 : r->dnum; return 8 + n; }
+    if (r->dst == MM2_D_MUTE) { int n = r->dnum < 1 ? 1 : r->dnum > 4 ? 4 : r->dnum; return 12 + n; }
+    if (r->dst == MM2_D_MRK) { int n = r->dnum < 1 ? 1 : r->dnum > MM2_MRK_MAX ? MM2_MRK_MAX : r->dnum; return 16 + n; }
+    if (r->dst == MM2_D_MRP) return 49;
+    if (r->dst == MM2_D_MRM) return 50;
+    return 0;                                              /* OFF (et toute destination inconnue) */
+}
+static void flat_set(mm2_row *r, int pos)
+{
+    if (pos <= 0) { r->dst = MM2_D_OFF; r->dnum = 0; }
+    else if (pos <= 8) { r->dst = MM2_D_SND; r->dnum = (uint8_t)pos; }
+    else if (pos <= 12) { r->dst = MM2_D_TAPE; r->dnum = (uint8_t)(pos - 8); }
+    else if (pos <= 16) { r->dst = MM2_D_MUTE; r->dnum = (uint8_t)(pos - 12); }
+    else if (pos <= 48) { r->dst = MM2_D_MRK; r->dnum = (uint8_t)(pos - 16); }
+    else if (pos == 49) { r->dst = MM2_D_MRP; r->dnum = 0; }
+    else { r->dst = MM2_D_MRM; r->dnum = 0; }
 }
 
 void mm2_edit_turn(int knob, int delta, int shift)
@@ -75,33 +113,21 @@ void mm2_edit_turn(int knob, int delta, int shift)
         if (c > MM2_ROWS - 1) c = MM2_ROWS - 1;
         cur = (uint8_t)c;
         page = (uint8_t)(cur / 4);
-    } else if (knob == 0 && st) {                                      /* bleu: n° source, wrap 0..127 */
-        while (st > 0) { r->snum = r->snum >= 127 ? 0 : (uint8_t)(r->snum + 1); st--; }
-        while (st < 0) { r->snum = r->snum ? (uint8_t)(r->snum - 1) : 127; st++; }
-    } else if (knob == 1) {                                            /* vert: destination / Shift: canal */
+    } else if (knob == 0) {                                            /* bleu: n° source / Shift: canal */
         if (shift) {
             while (st > 0) { mm2_ch_step(1); st--; }
             while (st < 0) { mm2_ch_step(-1); st++; }
         } else {
-            while (st > 0) { r->dst = r->dst >= MM2_D_MAX ? MM2_D_OFF : (uint8_t)(r->dst + 1); st--; }
-            while (st < 0) { r->dst = r->dst ? (uint8_t)(r->dst - 1) : MM2_D_MAX; st++; }
+            while (st > 0) { r->snum = r->snum >= 127 ? 0 : (uint8_t)(r->snum + 1); st--; }
+            while (st < 0) { r->snum = r->snum ? (uint8_t)(r->snum - 1) : 127; st++; }
         }
-    } else if (knob == 2) {                                            /* blanc: n° / Shift: fade */
-        if (shift) {
-            while (st > 0) { mm2_fade_step(1); st--; }
-            while (st < 0) { mm2_fade_step(-1); st++; }
-        } else {
-            int lo, hi;
-            mm2_dnum_range(r->dst, &lo, &hi);
-            if (hi <= lo) {                                            /* OFF / M+ / M-: pas de plage */
-                if (r->dst != MM2_D_OFF) return;                       /* M+/M-: sans paramètre */
-                r->dst = MM2_D_TAPE;                                   /* le blanc révèle une destination */
-                r->dnum = 1;
-                mm2_dnum_range(r->dst, &lo, &hi);
-                st = st > 0 ? st - 1 : st + 1;                         /* ce cran a créé TAPE 1 */
-            }
-            while (hi > lo && st > 0) { r->dnum = r->dnum >= hi ? (uint8_t)lo : (uint8_t)(r->dnum + 1); st--; }
-            while (hi > lo && st < 0) { r->dnum = r->dnum <= lo ? (uint8_t)hi : (uint8_t)(r->dnum - 1); st++; }
-        }
+    } else if (knob == 1) {                                            /* vert: destination en liste plate */
+        int pos = flat_pos(r);
+        while (st > 0) { pos = pos >= 50 ? 0 : pos + 1; st--; }
+        while (st < 0) { pos = pos <= 0 ? 50 : pos - 1; st++; }
+        flat_set(r, pos);
+    } else if (knob == 2) {                                            /* blanc: fade (plus de Shift) */
+        while (st > 0) { mm2_fade_step(1); st--; }
+        while (st < 0) { mm2_fade_step(-1); st++; }
     }
 }

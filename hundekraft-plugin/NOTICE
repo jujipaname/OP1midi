@@ -51,6 +51,15 @@ INSTALL
   managed by the workshop. Save a disk-mode backup first (see install-recuperation.md in the repository).
 
 CHANGES
+- v4 (2026-10-28): control map reworked per user feedback (no permanent header displays).
+  Blue: click cycles the source type; Shift + click toggles MIDI learn ON/OFF; turn = source
+  number; Shift + turn = global MIDI channel — while Shift is held, the cursor row's type column
+  displays CH n / ALL / OFF in place of NOTE/CC/PC; while learn is armed it displays LRN until
+  something is captured. Green: turn = destination AND its number as one flat list (OFF, SND 1..8,
+  TAPE 1..4, MUTE 1..4, MRK 1..32, M+, M- — the four tapes and the 32 markers scroll by). White:
+  turn = fade OFF/1s/2s/8s/32s without Shift (a toast confirms each change; no permanent display).
+  Red: turn = cursor over the 16 slots (page follows); Shift + click DELETES the row (OFF, fields
+  zeroed). Header reduced to MIDI MAP + P x/4. Settings format unchanged ('mmv' = 3).
 - v3.1 (2026-10-28): MARKER destination is now flat 1..32 — in core 3.0.3 the marker set is
   SHARED across the four tapes, so the number is the n-th placed marker on the current tape and
   no tape switch happens (use the TAPE destination to change tapes; MRK+/MRK- still navigate).

@@ -4,11 +4,17 @@
  * Entree: Shift + Help (mode clock) -> T3 (settings) -> rangée "MIDI MAP" (op1_switch enregistré
  * à OP1_EV_BOOT_DONE après les built-ins: 2e rangée = blanche): tourner = ON/OFF global, appui
  * blanc = ouvre l'éditeur.
- * Éditeur (overlay modal sur voile + panneau noir): bleu = type source (clic) et n° (rotation),
- * Shift+clic bleu = MIDI learn; vert = destination (rotation), Shift = canal global; blanc = n°
- * de destination (rotation), Shift = cycle du fade; rouge = curseur; fleches = pages. Sorties
- * (sauvegarde systématique): Help (Shift ou non), touches de mode / T1..T4 / transport (la touche
- * agit ensuite sauf Shift tenu). Ligne du curseur en rouge, colonnes aux couleurs des encodeurs.
+ * Éditeur v4 (overlay modal sur voile + panneau noir):
+ *   bleu: clic = type source (NOTE/CC/PC); Shift+clic = learn ON/OFF; rotation = n° source;
+ *         Shift+rotation = canal global (la colonne type du curseur affiche CH n / ALL / OFF
+ *         tant que Shift est tenu; learn armé, elle affiche LRN)
+ *   vert: rotation = destination + n° en liste plate (OFF, SND 1..8, TAPE 1..4, MUTE 1..4,
+ *         MRK 1..32, M+, M-)
+ *   blanc: rotation = fade OFF/1s/2s/8s/32s (toast de confirmation, plus d'affichage permanent)
+ *   rouge: rotation = curseur (16 slots, la page suit); Shift+clic = supprimer la ligne
+ *   fleches = pages; sorties (sauvegarde systématique): Help (Shift ou non), touches de mode /
+ *   T1..T4 / transport (la touche agit ensuite sauf Shift tenu). Curseur en rouge, colonnes aux
+ *   couleurs des encodeurs.
  *
  * Sources: NOTE (note-on vel > 0; note-off mappée avalée via le pipeline), CC (front >= 64),
  * PC (chaque message). Destinations: SOUND 1..8 (learn par touche: Shift+clic bleu arme, la
@@ -45,6 +51,7 @@ static void mm_put(const char *k, int v) { op1_setting_set(FEAT, k, v); }
 
 /* ---- état suivi ---- */
 static volatile uint8_t cur_mode;                /* OP1_EV_MODE / op1_input.mode */
+static volatile uint8_t sh_held;                 /* Shift tenu (mis à jour à chaque événement) */
 
 /* ---- file d'actions (producteur: timer midi_raw; consommateur: main loop) ---- */
 enum { K_SND = 1, K_TAPE, K_MUTE, K_MARKER, K_MNEXT, K_MPREV };
@@ -317,6 +324,7 @@ static uint64_t seen_down;
 static int input(const op1_input *in)
 {
     wire();
+    sh_held = in->shift;                         /* l'overlay lit l'état courant du Shift */
     if (in->type == OP1_IN_KEY) {
         if (!mm2_edit_view()) {
             if (in->code == 0x3D && in->pressed && in->mode == 0x0C && !op1_text_entry_open()) {
@@ -336,11 +344,19 @@ static int input(const op1_input *in)
         }
         int was = mm2_edit_view();
         int consumed = mm2_edit_key(in->code, in->pressed, in->shift);
-        if (was && !mm2_edit_view()) takes_dirty = 1;             /* validé: re-appliquer les takes */
+        if (was) takes_dirty = 1;                                 /* fermeture ou suppression: re-appliquer */
         if (!consumed && was && mm2_edit_view()) return 1;        /* toujours ouvert: modal */
         return consumed;                                          /* 0: sortie, la touche agit */
     }
-    if (mm2_edit_view()) { mm2_edit_turn(in->code, in->delta, in->shift); return 1; }
+    if (mm2_edit_view()) {
+        int f0 = mm2_fade();
+        mm2_edit_turn(in->code, in->delta, in->shift);
+        if (in->type == OP1_IN_KNOB && in->code == 2 && mm2_fade() != f0) {
+            static const char *const fn[] = { "FADE OFF", "FADE 1S", "FADE 2S", "FADE 8S", "FADE 32S" };
+            op1_toast(fn[mm2_fade()]);           /* le fade n'a plus d'affichage permanent */
+        }
+        return 1;
+    }
     return 0;
 }
 
@@ -403,13 +419,14 @@ static char *put_num(char *e, int v)                       /* 0..255 */
 static const char *const st_names[] = { "NOTE", "CC", "PC" };
 static const char *const dst_names[] = { "--", "SND", "TAPE", "MUT", "MRK", "M+", "M-" };
 static const char *const fade_names[] = { "OFF", "1S", "2S", "8S", "32S" };
-static const char *ch_name(void)
+static const char *ch_disp(void)
 {
     int ch = mm2_channel();
-    if (ch == MM2_CH_OFF) return "OFF";
     if (ch == MM2_CH_ALL) return "ALL";
-    static char b[4];
-    put_num(b, ch);
+    if (ch == MM2_CH_OFF) return "OFF";
+    static char b[6];
+    char *e = put_str(b, "CH");
+    put_num(e, ch);
     return b;
 }
 
@@ -425,14 +442,7 @@ static void overlay(void *r, int32_t screen)
     char *e = put_str(b, "P");
     e = put_num(e, page + 1);
     put_str(e, "/4");
-    sf_text(r, OP1_Q10(130), Y_T, ES, b, EW, c_white);
-    e = put_str(b, "CH:");
-    put_str(e, ch_name());
-    sf_text(r, OP1_Q10(174), Y_T, ES, b, EW, c_green);
-    e = put_str(b, "F:");
-    put_str(e, fade_names[mm2_fade()]);
-    sf_text(r, OP1_Q10(238), Y_T, ES, b, EW, c_green);
-    if (mm2_edit_learning()) sf_text(r, OP1_Q10(286), Y_T, ES, "LRN", EW, c_red);
+    sf_text(r, OP1_Q10(238), Y_T, ES, b, EW, c_white);
     for (int k = 0; k < 4; k++) {
         int i = page * 4 + k;
         const mm2_row *w = mm2_row_get(i);
@@ -442,7 +452,11 @@ static void overlay(void *r, int32_t screen)
         int y = Y0 + k * DY;
         put_num(b, i + 1);
         sf_text(r, X_SL, y, ES, b, EW, c_red);
-        sf_text(r, X_ST, y, ES, st_names[w->stype], EW, csrc);
+        const char *stTxt = st_names[w->stype];                /* colonne type contextuelle */
+        const uint8_t *stCol = csrc;
+        if (i == cur && mm2_edit_learning()) { stTxt = "LRN"; stCol = c_red; }
+        else if (i == cur && sh_held) { stTxt = ch_disp(); stCol = c_blue; }
+        sf_text(r, X_ST, y, ES, stTxt, EW, stCol);
         put_num(b, w->snum);
         sf_text(r, X_SN, y, ES, b, EW, csrc);
         sf_text(r, X_DT, y, ES, dst_names[w->dst], EW, cdst);

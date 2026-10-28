@@ -252,3 +252,31 @@ Décisions utilisateur (après la découverte de l'ensemble de marqueurs partag�
 
 Reste : test matériel v3.1 (learn touche + injection SOUND, fade, marker plat), README.md
 utilisateur, autres retours d'interface.
+
+## 11. v4 — nouvelle carte de contrôles (28 octobre 2026)
+
+Retours d'interface de l'utilisateur → remaniement des rôles (plus d'affichages permanents) :
+
+| Contrôle | Simple | Shift |
+|---|---|---|
+| Bleu | clic = type (NOTE/CC/PC) · rotation = n° source | rotation = **canal global** ; clic = **learn ON/OFF** |
+| Vert | rotation = **destination + n° en liste plate** (OFF, SND 1-8, TAPE 1-4, MUTE 1-4, MRK 1-32, M+, M-) | — |
+| Blanc | rotation = **fade** (OFF/1s/2s/8s/32s) | — |
+| Rouge | rotation = **curseur** (16 slots, page suit) | clic = **supprimer la ligne** |
+
+- **Affichages temporaires** : Shift tenu → la colonne type du curseur affiche `CH n/ALL/OFF`
+  (le suivi du Shift se fait par les événements input, `in->shift` à chaque événement) ; learn
+  armé → `LRN` à la place de la source tant que rien n'est capturé ; changement de fade →
+  `op1_toast("FADE xS")` (plus d'en-tête permanent : l'en-tête se réduit à `MIDI MAP pX/4`).
+- **Suppression** : `mm2_edit_delete()` (nouvelle API) — ligne → OFF, champs à zéro ; les takes
+  CC sont réappliqués après toute touche en modal (couvre la suppression).
+- **Incidents de build détectés et corrigés** : un import résiduel `_ch_name` (détail core non
+  exporté — le loader l'aurait refusé) repéré dans la liste des imports du pack et éliminé ;
+  en-tête de l'overlay réécrit proprement.
+- **`op1midi.knl` v4** : 16 084 octets, .text 7656, 479 relocations, **17 imports tous présents
+  dans kn_exports.c**, 0 warning (GCC 13.3.0). `mm2_test` v4 (liste plate, fade sans Shift,
+  learn toggle, delete, sorties) → **vert** ; simulateur : **33 self-tests verts** + rendu mis
+  en page (en-tête allégé, affichages contextuels).
+
+Reste : test matériel v4, README utilisateur, itérations UI suivantes.
+
