@@ -57,7 +57,7 @@ Touche Shift physique ou bouton SHIFT. Pour ouvrir l'éditeur : mode <b>clock</b
         <select id="dmode">
           <option value="synth">synth</option><option value="drum">drum</option>
           <option value="tape">tape</option><option value="mixer">mixer</option>
-          <option value="clock">clock</option>
+          <option value="clock" selected>clock</option>
         </select></label>
         <label>Tape
           <select id="dstate">
@@ -157,7 +157,7 @@ let cur=0, page=0, open=false, learn=false;
 let mmch=1, mmfade=0, mmen=1;
 let acc=[0,0,0,0];
 let shift=false;
-const dev = { mode:'tape', raw:3, punch:0, markers:5 };
+const dev = { mode:'clock', raw:3, punch:0, markers:5 };
 
 function save(){ if(!HASDOM) return; try{ localStorage.setItem('op1midi-sim',
   JSON.stringify({rows,mmch,mmfade,mmen})); }catch(e){} }
@@ -180,8 +180,11 @@ function keyName(c){ return {0:"HELP",1:"METRO",2:"SYNTH",3:"DRUM",4:"TAPE",5:"M
   59:"PUSH BLEU",60:"PUSH VERT",61:"PUSH BLANC",62:"PUSH ROUGE"}[c]||("0x"+c.toString(16)); }
 function key(code, pressed, sh){
   if(!open){
-    if(code===61&&pressed&&!sh&&dev.mode==='clock'){ open=true; cur=page=learn=0; acc=[0,0,0,0];
-      log("éditeur ouvert (appui blanc, clock)","act"); render(); return 1; }
+    if(code===61&&pressed){
+      if(dev.mode!=='clock'){ log("appui blanc ignoré (mode "+dev.mode+" — il faut clock)","ign"); return 1; }
+      open=true; cur=page=learn=0; acc=[0,0,0,0];
+      log("éditeur ouvert (appui blanc"+(sh?", Shift tenu":"")+")","act"); render(); return 1; }
+    if(code>=59&&code<=62&&pressed) log("push "+keyName(code)+": rien (éditeur fermé)","ign");
     return 0;
   }
   if(!pressed) return 1;                            /* modal: releases avalées */
@@ -211,7 +214,10 @@ function turn(knob, delta, sh){
     else { while(st>0){ r.dst=r.dst>=D_MAX?D_OFF:r.dst+1; st--; }
            while(st<0){ r.dst=r.dst?r.dst-1:D_MAX; st++; } } }
   else if(knob===2){ if(sh){ while(st>0){fadeStep(1);st--;} while(st<0){fadeStep(-1);st++;} }
-    else { const [lo,hi]=dnumRange(r.dst);
+    else { let [lo,hi]=dnumRange(r.dst);
+      if(hi<=lo){ if(r.dst!==0) return;                       /* M+/M-: sans paramètre */
+        r.dst=2; r.dnum=1; [lo,hi]=dnumRange(2);              /* le blanc révèle TAPE 1 */
+        st=st>0?st-1:st+1; }
       while(hi>lo&&st>0){ r.dnum=r.dnum>=hi?lo:r.dnum+1; st--; }
       while(hi>lo&&st<0){ r.dnum=r.dnum<=lo?hi:r.dnum-1; st++; } } }
   render(); save();
@@ -231,8 +237,11 @@ function learnFeedKey(slot){ if(!open||!learn||slot<1||slot>8) return;
 let seenDown=0n;
 function input(code, pressed, sh){
   if(!open){
-    if(code===61&&pressed&&!sh&&dev.mode==='clock'){ open=true; cur=page=learn=0; acc=[0,0,0,0];
-      log("éditeur ouvert (appui blanc, clock)","act"); render(); return 1; }
+    if(code===61&&pressed){
+      if(dev.mode!=='clock'){ log("appui blanc ignoré (mode "+dev.mode+" — il faut clock)","ign"); return 1; }
+      open=true; cur=page=learn=0; acc=[0,0,0,0];
+      log("éditeur ouvert (appui blanc"+(sh?", Shift tenu":"")+")","act"); render(); return 1; }
+    if(code>=59&&code<=62&&pressed) log("push "+keyName(code)+": rien (éditeur fermé)","ign");
     return 0;
   }
   if(pressed) seenDown|=1n<<BigInt(code&63);
@@ -388,7 +397,7 @@ KNOBS.forEach((k,i)=>{
     const dy=e.clientY-drag.y; drag.y=e.clientY; drag.moved+=Math.abs(dy);
     accPx-=dy; ang-=dy*0.02; draw();                    /* glisser vers le haut = tourner à droite */
     while(Math.abs(accPx)>=14){ const s=accPx>0?1:-1; accPx-=s*14; turn(i,s*1024,shift); } });
-  window.addEventListener('mouseup',()=>{ if(drag&&drag.moved<6&&Date.now()-drag.t<400){
+  window.addEventListener('mouseup',()=>{ if(drag&&drag.moved<6){
       input(59+i,1,shift); }
     drag=null; accPx=0; });
   cv.onwheel=e=>{ e.preventDefault(); const s=e.deltaY<0?1:-1; ang-=s*0.4; draw(); turn(i,s*1024,shift); };
@@ -474,6 +483,14 @@ if(!HASDOM){
   dev.raw=3; dispatch1("PC",7,1,0); A(LOG[0].includes("marker 5"),"MRK 5: saut immédiat (arrêt)");
   dev.raw=10; mmfade=0; dispatch1("PC",7,1,0); A(LOG[0].includes("SAUT immédiat"),"lecture sans fade: saut immédiat");
   mmfade=2; dispatch1("PC",7,1,0); A(LOG[0].includes("FADE OUT 2s"),"lecture + fade: FADE OUT");
+  /* blanc sur OFF: révèle TAPE 1 puis continue */
+  dev.mode='clock'; input(61,1,false); A(open,"éditeur rouvert (test blanc OFF)");
+  rows[cur].dst=0; rows[cur].dnum=0;                     /* slot 1 remis à OFF */
+  turn(2,1*1024,false); A(rows[cur].dst===D_TAPE&&rows[cur].dnum===1,"blanc sur OFF: TAPE 1");
+  turn(2,1*1024,false); A(rows[cur].dnum===2,"blanc: 1->2");
+  turn(2,-4*1024,false); A(rows[cur].dnum===2,"blanc -4: cyclique 1..4 -> 2");
+  input(0,1,false); A(!open,"fermé");
+
   /* sorties */
   dev.mode='clock'; input(61,1,false); A(open,"éditeur rouvert");
   A(input(4,1,false)===0&&!open,"sortie TAPE sans shift: passthrough");

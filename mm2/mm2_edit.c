@@ -93,6 +93,13 @@ void mm2_edit_turn(int knob, int delta, int shift)
         } else {
             int lo, hi;
             mm2_dnum_range(r->dst, &lo, &hi);
+            if (hi <= lo) {                                            /* OFF / M+ / M-: pas de plage */
+                if (r->dst != MM2_D_OFF) return;                       /* M+/M-: sans paramètre */
+                r->dst = MM2_D_TAPE;                                   /* le blanc révèle une destination */
+                r->dnum = 1;
+                mm2_dnum_range(r->dst, &lo, &hi);
+                st = st > 0 ? st - 1 : st + 1;                         /* ce cran a créé TAPE 1 */
+            }
             while (hi > lo && st > 0) { r->dnum = r->dnum >= hi ? (uint8_t)lo : (uint8_t)(r->dnum + 1); st--; }
             while (hi > lo && st < 0) { r->dnum = r->dnum <= lo ? (uint8_t)hi : (uint8_t)(r->dnum - 1); st++; }
         }

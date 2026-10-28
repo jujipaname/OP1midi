@@ -274,6 +274,17 @@ int main(void)
     mm2_edit_learn_feed(MM2_S_NOTE, 42);
     assert(mm2_row_get(5)->stype == MM2_S_NOTE && mm2_row_get(5)->dst == MM2_D_SND);
 
+    /* blanc sur OFF: révèle TAPE 1 puis continue */
+    reset();
+    mm2_edit_open();
+    mm2_edit_turn(2, 1 * MM2_DETENT, 0);                   /* blanc alors que dst = OFF */
+    assert(mm2_row_get(0)->dst == MM2_D_TAPE && mm2_row_get(0)->dnum == 1);
+    mm2_edit_turn(2, 1 * MM2_DETENT, 0);
+    assert(mm2_row_get(0)->dnum == 2);
+    mm2_edit_turn(2, -4 * MM2_DETENT, 0);                  /* wrap arrière dans la plage TAPE */
+    assert(mm2_row_get(0)->dnum == 2);                     /* 2-4 -> cyclique 1..4: 2 */
+    mm2_edit_close(0);
+
     /* curseur + pages */
     reset();
     mm2_edit_open();
