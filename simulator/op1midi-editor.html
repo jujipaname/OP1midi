@@ -152,20 +152,21 @@ const D_MAX=6, MRK_MAX=32, S_MAX=2;
 const DST_NAMES=["--","SND","TAPE","MUT","MRK","M+","M-"];
 const ST_NAMES=["NOTE","CC","PC"];
 const FADE_NAMES=["OFF","1S","2S","8S","32S"], FADE_SECS=[0,1,2,8,32];
-let rows = Array.from({length:16},()=>({stype:0,snum:0,dst:0,dnum:0}));
+let rows = Array.from({length:16},()=>({ch:0,stype:0,snum:0,dst:0,dnum:0,fade:0}));
 let cur=0, page=0, open=false, learn=false;
-let mmch=1, mmfade=0, mmen=1;
+let mmen=1;
 let acc=[0,0,0,0];
 let shift=false;
 const dev = { mode:'clock', raw:3, punch:0, markers:5 };
 
 function save(){ if(!HASDOM) return; try{ localStorage.setItem('op1midi-sim',
-  JSON.stringify({rows,mmch,mmfade,mmen})); }catch(e){} }
+  JSON.stringify({rows,mmen})); }catch(e){} }
 function load(){ if(!HASDOM) return; try{ const s=JSON.parse(localStorage.getItem('op1midi-sim'));
-  if(s){ rows=s.rows; mmch=s.mmch; mmfade=s.mmfade; mmen=s.mmen; } }catch(e){} }
+  if(s&&s.rows){ rows=s.rows.map(r=>({ch:r.ch||0,stype:r.stype||0,snum:r.snum||0,dst:r.dst||0,
+    dnum:r.dnum||0,fade:r.fade||0})); mmen=s.mmen; } }catch(e){} }
 
 function dnumRange(d){ return d>=1&&d<=3?[1,d===1?8:4]:d===4?[1,MRK_MAX]:[0,0]; }
-function chName(){ return mmch===0?"OFF":mmch===17?"ALL":String(mmch); }
+function chName(w){ const ch=(w&&w.ch)?w.ch:17; return ch===17?"ALL":ch===0?"OFF":"CH"+ch; }
 
 /* ============ journal ============ */
 const LOG=[];
@@ -212,7 +213,7 @@ function flatPos(r){ if(r.dst===1) return clampN(r.dnum,1,8); if(r.dst===2) retu
 function flatSet(r,pos){ if(pos<=0){r.dst=0;r.dnum=0;} else if(pos<=8){r.dst=1;r.dnum=pos;}
   else if(pos<=12){r.dst=2;r.dnum=pos-8;} else if(pos<=16){r.dst=3;r.dnum=pos-12;}
   else if(pos<=48){r.dst=4;r.dnum=pos-16;} else if(pos===49){r.dst=5;r.dnum=0;} else {r.dst=6;r.dnum=0;} }
-function delRow(){ const r=rows[cur]; r.stype=0;r.snum=0;r.dst=0;r.dnum=0;
+function delRow(){ const r=rows[cur]; r.ch=0;r.stype=0;r.snum=0;r.dst=0;r.dnum=0;r.fade=0;
   log("Shift+clic rouge: ligne "+(cur+1)+" supprimée","act"); render(); save(); }
 function turn(knob, delta, sh){
   if(!open) return;
@@ -221,7 +222,8 @@ function turn(knob, delta, sh){
   acc[knob]-=st*1024;
   const r=rows[cur];
   if(knob===3){ let c=cur+st; c=Math.max(0,Math.min(15,c)); cur=c; page=Math.floor(cur/4); }
-  else if(knob===0){ if(sh){ while(st>0){chStep(1);st--;} while(st<0){chStep(-1);st++;} }
+  else if(knob===0){ if(sh){ while(st>0){ r.ch=r.ch>=17?1:r.ch+1; st--; }
+                              while(st<0){ r.ch=(r.ch>1)?r.ch-1:17; st++; } }
     else { while(st>0){ r.snum=r.snum>=127?0:r.snum+1; st--; }
            while(st<0){ r.snum=r.snum?r.snum-1:127; st++; } } }
   else if(knob===1){                                          /* vert: destination en liste plate */
@@ -229,17 +231,16 @@ function turn(knob, delta, sh){
     while(st>0){ pos=pos>=50?0:pos+1; st--; }
     while(st<0){ pos=pos<=0?50:pos-1; st++; }
     flatSet(r,pos);
+    if(!r.ch) r.ch=17;                                        /* ligne nouvellement assignée */
   }
-  else if(knob===2){ const f0=mmfade; while(st>0){fadeStep(1);st--;} while(st<0){fadeStep(-1);st++;}
-    if(mmfade!==f0) log("FADE: "+FADE_NAMES[mmfade],"act"); }
+  else if(knob===2){ const f0=r.fade; while(st>0){ r.fade=r.fade>=4?0:r.fade+1; st--; }
+    while(st<0){ r.fade=r.fade?r.fade-1:4; st++; }
+    if(r.fade!==f0) log("FADE ligne "+(cur+1)+": "+FADE_NAMES[r.fade],"act"); }
   render(); save();
 }
-function chStep(d){ let v=mmch+d; if(v>17)v=0; if(v<0)v=17; mmch=v; save(); }
-function fadeStep(d){ mmfade=(mmfade+d+5)%5; save(); }
-
 /* ---- learn ---- */
 function learnFeedMidi(stype,num){ if(!open||!learn||stype>S_MAX||num<0||num>127) return;
-  const r=rows[cur]; r.stype=stype; r.snum=num; if(!r.dst) r.dst=D_TAPE; learn=false;
+  const r=rows[cur]; r.stype=stype; r.snum=num; if(!r.dst) r.dst=D_TAPE; if(!r.ch) r.ch=17; learn=false;
   log("LEARN: source "+ST_NAMES[stype]+" "+num+" -> slot "+(cur+1),"act"); render(); save(); }
 function learnFeedKey(slot){ if(!open||!learn||slot<1||slot>8) return;
   rows[cur].dnum=slot; learn=false;
@@ -271,9 +272,10 @@ function input(code, pressed, sh){
 /* ============ miroir dispatch (mm2_core.c) ============ */
 let prev=Array(16).fill(0);
 function envQuery(){ return { tape_mode:dev.mode==='tape', raw:+dev.raw, punch:+dev.punch, markers:+dev.markers }; }
-function match(stype,num,ch){ if(!mmen||!mmch) return -1;
+function match(stype,num,ch){ if(!mmen) return -1;
   for(let i=0;i<16;i++){ const r=rows[i];
-    if(r.dst&&r.stype===stype&&r.snum===num&&(mmch===17||mmch===ch+1)) return i; } return -1; }
+    const rc=r.ch?r.ch:17;
+    if(r.dst&&r.stype===stype&&r.snum===num&&(rc===17||rc===ch+1)) return i; } return -1; }
 function run(i){ const r=rows[i], e=envQuery();
   switch(r.dst){
     case D_SND: if(r.dnum>=1&&r.dnum<=8) log("ACTION SOUND: injection SYNTH + "+
@@ -307,8 +309,6 @@ function jump(e,dir,target){                            /* miroir du moteur de f
 /* ---- dispatch ---- */
 function dispatch(type,num,ch,val){
   if(!mmen){ log("MIDI "+type+" "+num+": ignoré (MIDI MAP inactif)","ign"); return false; }
-  if(!mmch){ log("MIDI "+type+" "+num+": ignoré (canal OFF)","ign"); return false; }
-  if(mmch!==17&&mmch!==ch){ log("MIDI "+type+" "+num+" ch"+ch+": ignoré (canal "+chName()+")","ign"); return false; }
   if(learn){ if(rows[cur].dst===D_SND){ log("learn touche en cours: MIDI ignoré","ign"); return true; }
     learnFeedMidi(type==="CC"?1:type==="PC"?2:0, num);
     if(type==="CC") log("CC "+num+" taken (op1_midi_take_cc)","act"); return true; }
@@ -362,7 +362,7 @@ function render(){ if(!HASDOM) return;
   ctx.fillStyle="#000"; ctx.fillRect(6,4,308,152);
   const hline=(x0,x1,y,c)=>seg(x0,y,x1,y,2,c);
   hline(7,313,4,C_WHITE); hline(7,313,156,C_WHITE); seg(6,4,6,156,2,C_WHITE); seg(314,4,314,156,2,C_WHITE);
-  const X_SL=8, X_ST=34, X_SN=90, X_DT=140, X_DN=210, Y_T=10, Y0=40, DY=26;
+  const X_SL=8, X_ST=34, X_SN=90, X_DT=140, X_CH=240, Y_T=10, Y0=40, DY=26;
   sfText(X_SL,Y_T,"MIDI MAP",C_WHITE);
   sfText(130,Y_T,"P"+(page+1)+"/4",C_WHITE);
   sfText(174,Y_T,"CH:"+chName(),C_GREEN);
@@ -453,9 +453,9 @@ if(!HASDOM){
   let n=0; const A=(c,m)=>{ if(!c){ console.error("FAIL:",m); process.exit(1); } n++; };
   dev.mode='clock'; dev.raw=3; dev.punch=0; dev.markers=5;
   A(input(61,1,false)===1&&open===true,"ouverture: appui blanc en clock");
-  turn(0,3*1024,false); A(rows[cur].snum===3,"bleu: snum 3 (slot 1, curseur à 0)");
+  turn(0,3*1024,false); A(rows[cur].snum===3,"bleu: snum 3 (slot 1)");
   input(59,1,false); input(59,1,false); input(59,1,false); A(rows[cur].stype===0,"bleu clic x3: wrap PC->NOTE");
-  turn(1,1*1024,false); A(rows[cur].dst===D_SND&&rows[cur].dnum===1,"vert +1: SND 1");
+  turn(1,1*1024,false); A(rows[cur].dst===D_SND&&rows[cur].dnum===1&&rows[cur].ch===17,"vert +1: SND 1 + ch ALL auto");
   turn(1,7*1024,false); A(rows[cur].dst===D_SND&&rows[cur].dnum===8,"vert +7: SND 8");
   turn(1,1*1024,false); A(rows[cur].dst===D_TAPE&&rows[cur].dnum===1,"vert: SND8->TAPE 1");
   turn(1,4*1024,false); A(rows[cur].dst===D_MUTE&&rows[cur].dnum===1,"vert: TAPE4->MUT 1");
@@ -464,21 +464,23 @@ if(!HASDOM){
   turn(1,2*1024,false); A(rows[cur].dst===D_MRM,"vert +2: MRK32->M+->M-");
   turn(1,-1*1024,false); A(rows[cur].dst===D_MRP,"vert -1: M-->M+");
   turn(1,3*1024,false); A(rows[cur].dst===D_SND&&rows[cur].dnum===1,"vert +3: M+->M-->OFF->SND1");
-  turn(2,1*1024,false); A(mmfade===1,"blanc (sans Shift): fade 0->1");
-  turn(2,4*1024,false); A(mmfade===0,"blanc +4: fade wrap -> 0");
-  turn(2,-1*1024,false); A(mmfade===4,"blanc -1: fade 0->32s");
-  fadeStep(1); A(mmfade===0,"retour OFF");
-  turn(0,1*1024,true); A(mmch===2,"Shift+bleu rot: canal 1->2");
-  turn(0,-1*1024,true); A(mmch===1,"Shift+bleu rot -: 2->1");
+  turn(2,1*1024,false); A(rows[cur].fade===1,"blanc (sans Shift): fade ligne 0->1");
+  turn(2,4*1024,false); A(rows[cur].fade===0,"blanc +4: fade wrap -> 0");
+  turn(2,-1*1024,false); A(rows[cur].fade===4,"blanc -1: fade 0->32s");
+  turn(2,1*1024,false); A(rows[cur].fade===0,"retour OFF");
+  turn(0,1*1024,true); A(rows[cur].ch===1,"Shift+bleu rot: canal ligne ALL->1");
+  turn(0,16*1024,true); A(rows[cur].ch===17,"canal: 1->...->ALL (16 crans)");
+  turn(0,1*1024,true); A(rows[cur].ch===1,"canal: ALL->1 (wrap)");
+  turn(0,-1*1024,true); A(rows[cur].ch===17,"canal: 1->ALL (sens arrière)");
   input(59,1,true); A(learn===true,"Shift+clic bleu: learn armé");
   input(59,1,true); A(learn===false,"Shift+clic bleu: learn désarmé (toggle)");
   input(59,1,true); A(learn===true,"réarmé");
   learnFeedMidi(1,44); A(!learn&&rows[cur].snum===44&&rows[cur].stype===1,"learn capture CC44");
-  A(rows[cur].dst===D_SND,"learn: garde la destination SND");
+  A(rows[cur].dst===D_SND&&rows[cur].ch===17,"learn: garde dst + canal de la ligne (17)");
   input(59,1,true); A(learn===true,"learn réarmé (touche)");
   learnFeedKey(7); A(!learn&&rows[cur].dnum===7,"learn touche: slot 7");
-  input(62,1,true); A(rows[cur].dst===0&&rows[cur].snum===0&&rows[cur].stype===0&&rows[cur].dnum===0,
-    "Shift+clic rouge: ligne supprimée");
+  input(62,1,true); A(rows[cur].dst===0&&rows[cur].snum===0&&rows[cur].stype===0&&rows[cur].dnum===0&&
+    rows[cur].ch===0&&rows[cur].fade===0,"Shift+clic rouge: ligne supprimée (tout à zéro)");
   input(62,1,false); A(open===true,"release rouge: avalée (modal)");
   turn(3,6*1024,false); A(cur===6&&page===1,"curseur +6: slot 7 page 2");
   input(36,1,false); A(page===0&&cur===0,"flèche gauche: page 1");
@@ -486,6 +488,18 @@ if(!HASDOM){
   input(61,1,false); A(open===true,"réouverture");
   A(input(4,1,false)===0&&!open,"sortie TAPE sans shift: passthrough");
   input(61,1,false); A(input(4,1,true)===1&&!open,"sortie TAPE avec shift: consommée");
+  /* dispatch v5: canal par ligne */
+  open=false; dev.raw=3; dev.punch=0;
+  rows[0]={ch:0,stype:1,snum:80,dst:D_TAPE,dnum:2,fade:0};       /* ch 0 = ALL */
+  A(dispatch("CC",80,6,127)===true,"ch unset=ALL: canal 6 consommé");
+  rows[0].ch=4; A(dispatch("CC",80,6,0)===false,"canal 6 ignoré (ligne ch 4)");
+  A(dispatch("CC",80,4,0)===true&&dispatch("CC",80,4,127)===true,"canal 4: front déclenche (TAPE de la ligne 0)");
+  rows[0].ch=17; rows[1]={ch:2,stype:1,snum:80,dst:D_MUTE,dnum:3,fade:2};
+  A(dispatch("CC",80,2,0)===true,"ligne 0 (ALL) d'abord: consommé");
+  A(bars.mute[2]===0,"ligne 1 pas atteinte (première ligne gagnante)");
+  rows[0].dst=0;                                                    /* ligne 0 -> OFF */
+  A(dispatch("CC",80,2,0)===true&&dispatch("CC",80,2,127)===true&&bars.mute[2]===1,
+    "ligne 0 OFF: ligne 1 (canal 2) MUTE 3 togglé");
   console.log("self-test: "+n+" vérifications OK");
 }
 </script>

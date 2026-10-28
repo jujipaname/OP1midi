@@ -29,6 +29,7 @@ void mm2_edit_learn_feed(int stype, int num)               /* prochain NOTE/CC/P
     r->stype = (uint8_t)stype;
     r->snum = (uint8_t)num;
     if (!r->dst) r->dst = MM2_D_TAPE;                      /* ligne vide: destination par défaut */
+    if (!r->ch) r->ch = MM2_CH_ALL;
     learn = 0;
 }
 
@@ -43,7 +44,7 @@ void mm2_edit_delete(void)                                 /* Shift + clic rouge
 {
     if (!open) return;
     mm2_row *r = mm2_row_edit(cur);
-    r->stype = 0; r->snum = 0; r->dst = MM2_D_OFF; r->dnum = 0;
+    r->ch = 0; r->stype = 0; r->snum = 0; r->dst = MM2_D_OFF; r->dnum = 0; r->fade = 0;
 }
 
 static int exit_key(int code)              /* modes, T1..T4, transport: quittent l'éditeur */
@@ -113,10 +114,10 @@ void mm2_edit_turn(int knob, int delta, int shift)
         if (c > MM2_ROWS - 1) c = MM2_ROWS - 1;
         cur = (uint8_t)c;
         page = (uint8_t)(cur / 4);
-    } else if (knob == 0) {                                            /* bleu: n° source / Shift: canal */
+    } else if (knob == 0) {                                            /* bleu: n° source / Shift: canal de ligne */
         if (shift) {
-            while (st > 0) { mm2_ch_step(1); st--; }
-            while (st < 0) { mm2_ch_step(-1); st++; }
+            while (st > 0) { r->ch = r->ch >= MM2_CH_ALL ? 1 : (uint8_t)(r->ch + 1); st--; }
+            while (st < 0) { r->ch = r->ch > 1 ? (uint8_t)(r->ch - 1) : MM2_CH_ALL; st++; }
         } else {
             while (st > 0) { r->snum = r->snum >= 127 ? 0 : (uint8_t)(r->snum + 1); st--; }
             while (st < 0) { r->snum = r->snum ? (uint8_t)(r->snum - 1) : 127; st++; }
@@ -126,8 +127,9 @@ void mm2_edit_turn(int knob, int delta, int shift)
         while (st > 0) { pos = pos >= 50 ? 0 : pos + 1; st--; }
         while (st < 0) { pos = pos <= 0 ? 50 : pos - 1; st++; }
         flat_set(r, pos);
-    } else if (knob == 2) {                                            /* blanc: fade (plus de Shift) */
-        while (st > 0) { mm2_fade_step(1); st--; }
-        while (st < 0) { mm2_fade_step(-1); st++; }
+        if (!r->ch) r->ch = MM2_CH_ALL;                            /* ligne nouvellement assignée */
+    } else if (knob == 2) {                                            /* blanc: fade de la ligne */
+        while (st > 0) { r->fade = r->fade >= 4 ? 0 : (uint8_t)(r->fade + 1); st--; }
+        while (st < 0) { r->fade = r->fade ? (uint8_t)(r->fade - 1) : 4; st++; }
     }
 }

@@ -28,7 +28,7 @@
 #define MM2_CH_OFF  0                 /* 'mmch': mapping désactivé */
 #define MM2_CH_ALL  17                /* 'mmch': tous les canaux */
 #define MM2_DETENT  1024              /* delta d'encodeur par cran (convention op1r) */
-#define MM2_FMT     3                 /* version du format des lignes ('mmv') */
+#define MM2_FMT     4                 /* version du format des lignes ('mmv') */
 
 enum { MM2_S_NOTE = 0, MM2_S_CC = 1, MM2_S_PC = 2 };
 enum { MM2_D_OFF = 0, MM2_D_SND = 1, MM2_D_TAPE = 2, MM2_D_MUTE = 3,
@@ -37,19 +37,21 @@ enum { MM2_D_OFF = 0, MM2_D_SND = 1, MM2_D_TAPE = 2, MM2_D_MUTE = 3,
 #define MM2_D_MAX   6
 #define MM2_MRK_MAX 32                /* un ensemble partagé de marqueurs (core 3.0.3) */
 
-typedef struct { uint8_t stype, snum, dst, dnum; } mm2_row;
-/* stype: MM2_S_*; snum 0..127; dst: MM2_D_*; dnum 0..255 (plage validée par destination:
- * SND 1..8, TAPE 1..4, MUTE 1..4, MRK 1..MM2_MRK_MAX, M+/M- et OFF sans paramètre) */
+typedef struct { uint8_t ch, stype, snum, dst, dnum, fade; } mm2_row;
+/* ch: canal de la ligne, 0 = non réglé (traité comme ALL), 1..16, MM2_CH_ALL;
+ * stype: MM2_S_*; snum 0..127; dst: MM2_D_*; dnum 0..255 (plage validée par destination:
+ * SND 1..8, TAPE 1..4, MUTE 1..4, MRK 1..MM2_MRK_MAX, M+/M- et OFF sans paramètre);
+ * fade: 0..4 (OFF/1s/2s/8s/32s) — utilisé par MUTE/MRK/M+/M- uniquement (côté intégration) */
 
 /* ---- ABI d'intégration (définies ici, assignées par l'hôte au démarrage; 0 = action ignorée) ---- */
 extern int  (*mm2_setting_get)(const char *key, int dflt);
 extern void (*mm2_setting_put)(const char *key, int val);
 extern void (*mm2_act_snd)(int key);        /* 1..8 (aucun service core connu: toast côté intégration) */
 extern void (*mm2_act_tape)(int tape);      /* 1..4 (op1_tape_switch; erreurs ignorées) */
-extern void (*mm2_act_mute)(int track);     /* 1..4: toggle mute */
-extern void (*mm2_act_marker)(int local);   /* n-ième marqueur (ensemble partagé), tape courante */
-extern void (*mm2_act_mnext)(void);         /* marker suivant */
-extern void (*mm2_act_mprev)(void);         /* marker précédent */
+extern void (*mm2_act_mute)(int track, int fade);      /* 1..4: toggle mute (+ fade de la ligne) */
+extern void (*mm2_act_marker)(int local, int fade);    /* n-ième marqueur, tape courante (+ fade) */
+extern void (*mm2_act_mnext)(int fade);                /* marker suivant (+ fade) */
+extern void (*mm2_act_mprev)(int fade);                /* marker précédent (+ fade) */
 typedef struct { int tape_mode, raw_state, punch, markers; } mm2_env;
 extern void (*mm2_env_query)(mm2_env *e);   /* gardes: raw_state 3 arrêt / 10 lecture autorisés */
 
@@ -58,10 +60,6 @@ void mm2_load(void);
 void mm2_save(void);
 int  mm2_enabled(void);
 void mm2_enable(int on);
-int  mm2_channel(void);                     /* MM2_CH_OFF / 1..16 / MM2_CH_ALL */
-void mm2_ch_step(int dir);                  /* Shift + rotation verte (éditeur): canal ±1, wrap */
-int  mm2_fade(void);                        /* 0..4 (0 = off) */
-void mm2_fade_step(int dir);                /* Shift + rotation blanche (éditeur): fade ±1, wrap */
 void mm2_dnum_range(int dst, int *lo, int *hi);        /* plage valide du n° (0..0 si sans paramètre) */
 
 /* ---- dispatch (n'importe quel thread; 1 = consommé) ---- */

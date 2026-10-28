@@ -33,13 +33,13 @@ static void st_clear(void) { nst = 0; }
 
 /* ---- compteurs d'actions ---- */
 static int n_snd, n_tape, n_mute, n_marker, n_mnext, n_mprev;
-static int last_snd, last_tape, last_mute, last_mtape, last_mlocal;
+static int last_snd, last_tape, last_mute, last_mlocal, last_fade;
 static void act_snd(int k) { n_snd++; last_snd = k; }
 static void act_tape(int t) { n_tape++; last_tape = t; }
-static void act_mute(int t) { n_mute++; last_mute = t; }
-static void act_marker(int local) { n_marker++; last_mlocal = local; }
-static void act_mnext(void) { n_mnext++; }
-static void act_mprev(void) { n_mprev++; }
+static void act_mute(int t, int f) { n_mute++; last_mute = t; last_fade = f; }
+static void act_marker(int local, int f) { n_marker++; last_mlocal = local; last_fade = f; }
+static void act_mnext(int f) { n_mnext++; last_fade = f; }
+static void act_mprev(int f) { n_mprev++; last_fade = f; }
 static mm2_env ENV = { 1, 3, 0, 5 };       /* mode tape, arrêt (3), pas de punch, 5 marqueurs */
 static void env_query(mm2_env *e) { *e = ENV; }
 
@@ -47,7 +47,7 @@ static void reset(void)
 {
     st_clear();
     n_snd = n_tape = n_mute = n_marker = n_mnext = n_mprev = 0;
-    last_snd = last_tape = last_mute = last_mtape = last_mlocal = -99;
+    last_snd = last_tape = last_mute = last_mlocal = last_fade = -99;
     mm2_setting_get = fake_get; mm2_setting_put = fake_put;
     mm2_act_snd = act_snd; mm2_act_tape = act_tape; mm2_act_mute = act_mute;
     mm2_act_marker = act_marker; mm2_act_mnext = act_mnext; mm2_act_mprev = act_mprev;
@@ -59,17 +59,20 @@ static void reset(void)
 
 int main(void)
 {
-    /* ---- codec v3 ---- */
-    mm2_row r = { MM2_S_CC, 80, MM2_D_MRK, 45 };
+    /* ---- codec v5 (ch + fade par ligne) ---- */
+    mm2_row r = { 3, MM2_S_CC, 80, MM2_D_MRK, 45, 2 };
     int p = mm2_row_pack(&r);
     mm2_row q = mm2_row_unpack(p);
-    assert(q.stype == MM2_S_CC && q.snum == 80 && q.dst == MM2_D_MRK && q.dnum == 45);
-    mm2_row bad = { 9, 0, 0, 0 };
+    assert(q.ch == 3 && q.stype == MM2_S_CC && q.snum == 80 && q.dst == MM2_D_MRK &&
+           q.dnum == 45 && q.fade == 2);
+    mm2_row bad = { 0, 9, 0, 0, 0, 0 };
     assert(mm2_row_pack(&bad) == -1);
-    mm2_row back = mm2_row_unpack(7 << 9);                 /* dst 7 > MM2_D_MAX: ligne invalidée */
+    mm2_row back = mm2_row_unpack(7 << 14);                /* dst 7 > MM2_D_MAX: invalidée */
     assert(back.dst == MM2_D_OFF && back.snum == 0 && back.dnum == 0);
-    mm2_row back2 = mm2_row_unpack(3);                     /* stype 3 > MM2_S_MAX: invalidée */
+    mm2_row back2 = mm2_row_unpack(3 << 5);                /* stype 3 > MM2_S_MAX: invalidée */
     assert(back2.dst == MM2_D_OFF && back2.stype == 0 && back2.snum == 0);
+    mm2_row back3 = mm2_row_unpack(20);                    /* ch 20 > ALL: invalidée */
+    assert(back3.ch == 0 && back3.dst == MM2_D_OFF);
 
     /* ---- dispatch: rien de mappé -> rien de consommé ---- */
     reset();
@@ -80,10 +83,11 @@ int main(void)
     ENV.markers = 20;
     mm2_row_edit(0)->stype = MM2_S_CC; mm2_row_edit(0)->snum = 80; mm2_row_edit(0)->dst = MM2_D_MRK;
     mm2_row_edit(0)->dnum = 5;
-    assert(!mm2_cc(1, 80, 127));                           /* canal 2 != 1 */
-    assert(mm2_cc(0, 80, 127) && n_marker == 1 && last_mlocal == 5);
-    assert(mm2_cc(0, 80, 100) && n_marker == 1);           /* tenu: pas de répétition */
-    assert(mm2_cc(0, 80, 0) && mm2_cc(0, 80, 64) && n_marker == 2);
+    /* ch de ligne non réglé (0) = ALL: le canal 2 aussi déclenche */
+    assert(mm2_cc(1, 80, 127) && n_marker == 1 && last_mlocal == 5);
+    assert(mm2_cc(0, 80, 0) && mm2_cc(0, 80, 127) && n_marker == 2 && last_mlocal == 5);
+    assert(mm2_cc(0, 80, 100) && n_marker == 2);           /* tenu: pas de répétition */
+    assert(mm2_cc(0, 80, 0) && mm2_cc(0, 80, 64) && n_marker == 3);
 
     /* ---- gardes marker: états / punch / marqueurs insuffisants ---- */
     reset();
@@ -153,37 +157,40 @@ int main(void)
     mm2_row_edit(1)->dnum = 2;
     assert(mm2_cc(0, 7, 127) && n_mnext == 1 && n_tape == 0);
 
-    /* ---- ON/OFF global + canal ---- */
+    /* ---- ON/OFF global ---- */
     reset();
     mm2_row_edit(0)->stype = MM2_S_CC; mm2_row_edit(0)->snum = 80; mm2_row_edit(0)->dst = MM2_D_MRP;
     mm2_enable(0);
     assert(!mm2_cc(0, 80, 127) && n_mnext == 0);
     mm2_enable(1);
     assert(mm2_cc(0, 80, 127) && n_mnext == 1);
-    mm2_save();
-    mm2_load();                                            /* mmch par défaut = 1 (lignes conservées) */
-    assert(mm2_channel() == 1);
-    assert(!mm2_cc(2, 80, 127) && mm2_cc(0, 80, 127));
-    mm2_ch_step(1);                                        /* 1 -> 2 */
-    assert(mm2_channel() == 2 && !mm2_cc(0, 80, 10) && mm2_cc(1, 80, 127));
-    for (int i = 0; i < 15; i++) mm2_ch_step(1);           /* -> ALL (17) */
-    assert(mm2_channel() == MM2_CH_ALL && mm2_cc(9, 80, 5) && n_mnext > 0);
-    mm2_ch_step(1);                                        /* ALL -> OFF */
-    assert(mm2_channel() == MM2_CH_OFF && !mm2_cc(0, 80, 127));
-    mm2_ch_step(-1);                                       /* OFF -> ALL */
-    assert(mm2_channel() == MM2_CH_ALL);
-    mm2_ch_step(-1);                                       /* ALL -> 16 */
-    assert(mm2_channel() == 16 && fake_get("mmch", -1) == 16);
 
-    /* ---- fade: cycle + persistance ---- */
+    /* ---- canal PAR LIGNE (0 = non réglé: ALL) ---- */
     reset();
-    assert(mm2_fade() == 0);
-    mm2_fade_step(1); assert(mm2_fade() == 1);
-    for (int i = 0; i < 3; i++) mm2_fade_step(1);
-    assert(mm2_fade() == 4);
-    mm2_fade_step(1); assert(mm2_fade() == 0);
-    mm2_fade_step(-1); assert(mm2_fade() == 4);
-    assert(fake_get("mmfade", -1) == 4);
+    mm2_row_edit(0)->stype = MM2_S_CC; mm2_row_edit(0)->snum = 80; mm2_row_edit(0)->dst = MM2_D_MRP;
+    /* ch non réglé (0) -> ALL */
+    assert(mm2_cc(5, 80, 127) && n_mnext == 1);
+    mm2_row_edit(0)->ch = 4;                               /* ligne sur le canal 4 */
+    assert(!mm2_cc(0, 80, 0) && !mm2_cc(2, 80, 127) && mm2_cc(3, 80, 0) && mm2_cc(3, 80, 64) && n_mnext == 2);
+    mm2_row_edit(0)->ch = MM2_CH_ALL;
+    assert(mm2_cc(9, 80, 0) && mm2_cc(9, 80, 127) && n_mnext == 3);
+    mm2_row_edit(0)->ch = 5;                               /* ligne 0: canal 6 (hors chemin) */
+    mm2_row_edit(1)->stype = MM2_S_CC; mm2_row_edit(1)->snum = 80; mm2_row_edit(1)->dst = MM2_D_MRP;
+    mm2_row_edit(1)->ch = 2;                               /* ligne 1: canal 2 */
+    assert(!mm2_cc(0, 80, 0) && mm2_cc(1, 80, 0) && mm2_cc(1, 80, 127) && n_mnext == 4);
+    mm2_row_edit(0)->ch = 0; mm2_row_edit(1)->ch = 0;      /* retour ALL pour la suite */
+
+    /* ---- fade PAR LIGNE (hooks reçoivent la valeur de la ligne) ---- */
+    reset();
+    mm2_row_edit(0)->stype = MM2_S_CC; mm2_row_edit(0)->snum = 90; mm2_row_edit(0)->dst = MM2_D_MUTE;
+    mm2_row_edit(0)->dnum = 2; mm2_row_edit(0)->fade = 3;
+    assert(mm2_cc(0, 90, 127) && n_mute == 1 && last_mute == 2 && last_fade == 3);
+    mm2_row_edit(0)->dst = MM2_D_MRP; mm2_row_edit(0)->fade = 1;
+    assert(mm2_cc(0, 90, 0) && mm2_cc(0, 90, 127) && n_mnext == 1 && last_fade == 1);
+    mm2_row_edit(0)->dst = MM2_D_MRK; mm2_row_edit(0)->dnum = 3; mm2_row_edit(0)->fade = 4;
+    assert(mm2_cc(0, 90, 0) && mm2_cc(0, 90, 127) && n_marker == 1 && last_fade == 4);
+    mm2_row_edit(0)->dst = MM2_D_SND; mm2_row_edit(0)->dnum = 2; mm2_row_edit(0)->fade = 4;
+    assert(mm2_cc(0, 90, 0) && mm2_cc(0, 90, 127) && n_snd == 1);   /* SND: pas de fade */
 
     /* ---- hooks absents: consommé sans crash ---- */
     reset();
@@ -196,18 +203,18 @@ int main(void)
     reset();
     for (int i = 0; i < MM2_ROWS; i++) {
         mm2_row *w = mm2_row_edit(i);
-        w->stype = (uint8_t)(i % 3); w->snum = (uint8_t)(i * 8);
-        w->dst = (uint8_t)(i % 7); w->dnum = (uint8_t)(i * 3 + 1);
+        w->ch = (uint8_t)(i % 17); w->stype = (uint8_t)(i % 3); w->snum = (uint8_t)(i * 8);
+        w->dst = (uint8_t)(i % 7); w->dnum = (uint8_t)(i * 3 + 1); w->fade = (uint8_t)(i % 5);
     }
     mm2_save();
     for (int i = 0; i < MM2_ROWS; i++) memset((void *)mm2_row_get(i), 0, sizeof(mm2_row));
     mm2_load();
     for (int i = 0; i < MM2_ROWS; i++) {
         const mm2_row *w = mm2_row_get(i);
-        assert(w->stype == (uint8_t)(i % 3) && w->snum == (uint8_t)(i * 8) &&
-               w->dst == (uint8_t)(i % 7) && w->dnum == (uint8_t)(i * 3 + 1));
+        assert(w->ch == (uint8_t)(i % 17) && w->stype == (uint8_t)(i % 3) && w->snum == (uint8_t)(i * 8) &&
+               w->dst == (uint8_t)(i % 7) && w->dnum == (uint8_t)(i * 3 + 1) && w->fade == (uint8_t)(i % 5));
     }
-    fake_put("mmv", 2);                                    /* ancien format: remise à zéro au load */
+    fake_put("mmv", 3);                                    /* ancien format: remise à zéro au load */
     mm2_load();
     assert(mm2_row_get(0)->dst == MM2_D_OFF && fake_get("mmv", -1) == MM2_FMT);
     for (int i = 0; i < MM2_ROWS; i++) assert(mm2_row_get(i)->dst == MM2_D_OFF);
@@ -229,27 +236,30 @@ int main(void)
     mm2_edit_turn(1,2*MM2_DETENT,false); A2(mm2_row_get(0)->dst==MM2_D_MRM,"vert +2: MRK32->M+->M-");
     mm2_edit_turn(1,-1*MM2_DETENT,false); A2(mm2_row_get(0)->dst==MM2_D_MRP,"vert -1: M-->M+");
     mm2_edit_turn(1,3*MM2_DETENT,false); A2(mm2_row_get(0)->dst==MM2_D_SND&&mm2_row_get(0)->dnum==1,"vert +3: M+->M-->OFF->SND1");
-    /* blanc: fade sans Shift */
-    mm2_edit_turn(2,1*MM2_DETENT,false); A2(mm2_fade()==1,"blanc: fade 0->1");
-    mm2_edit_turn(2,4*MM2_DETENT,false); A2(mm2_fade()==0,"blanc +4: fade 1->0 (wrap)");
-    mm2_edit_turn(2,-1*MM2_DETENT,false); A2(mm2_fade()==4,"blanc -1: fade 0->32s");
-    mm2_fade_step(1); A2(mm2_fade()==0,"retour OFF");
-    /* Shift + bleu rotation: canal */
-    mm2_edit_turn(0,1*MM2_DETENT,true); A2(mm2_channel()==2,"Shift+bleu: canal 1->2");
-    mm2_edit_turn(0,-1*MM2_DETENT,true); A2(mm2_channel()==1,"Shift+bleu -: 2->1");
+    /* blanc: fade de la ligne (sans Shift) */
+    mm2_edit_turn(2,1*MM2_DETENT,false); A2(mm2_row_get(0)->fade==1,"blanc: fade ligne 0->1");
+    mm2_edit_turn(2,4*MM2_DETENT,false); A2(mm2_row_get(0)->fade==0,"blanc +4: fade wrap -> 0");
+    mm2_edit_turn(2,-1*MM2_DETENT,false); A2(mm2_row_get(0)->fade==4,"blanc -1: fade 0->32s");
+    mm2_edit_turn(2,1*MM2_DETENT,false); A2(mm2_row_get(0)->fade==0,"retour OFF");
+    /* Shift + bleu rotation: canal de la ligne */
+    mm2_edit_turn(0,1*MM2_DETENT,true); A2(mm2_row_get(0)->ch==1,"Shift+bleu: canal ligne 0 (unset->1)");
+    mm2_edit_turn(0,16*MM2_DETENT,true); A2(mm2_row_get(0)->ch==MM2_CH_ALL,"canal: 1->...->ALL (16 crans)");
+    mm2_edit_turn(0,1*MM2_DETENT,true); A2(mm2_row_get(0)->ch==1,"canal: ALL->1 (wrap)");
     /* Shift + clic bleu: learn toggle */
     mm2_edit_key(0x3B,1,true); A2(mm2_edit_learning(),"learn armé (Shift+clic bleu)");
     mm2_edit_key(0x3B,1,true); A2(!mm2_edit_learning(),"learn désarmé (2e Shift+clic)");
     mm2_edit_key(0x3B,1,true); A2(mm2_edit_learning(),"réarmé");
     mm2_edit_learn_feed(MM2_S_CC,44); A2(!mm2_edit_learning()&&mm2_row_get(0)->snum==44&&mm2_row_get(0)->stype==MM2_S_CC,"learn capture CC44");
     A2(mm2_row_get(0)->dst==MM2_D_SND,"learn: garde la destination SND");
+    A2(mm2_row_get(0)->ch==1,"learn: préserve le canal de la ligne (1)");
     /* learn touche (dst SND) */
     mm2_edit_key(0x3B,1,true); A2(mm2_edit_learning(),"learn réarmé (touche)");
     mm2_edit_learn_feed_key(7); A2(!mm2_edit_learning()&&mm2_row_get(0)->dnum==7,"learn touche: slot 7");
     /* Shift + clic rouge: supprimer la ligne */
     mm2_edit_key(0x3E,1,true);
-    A2(mm2_row_get(0)->dst==MM2_D_OFF&&mm2_row_get(0)->snum==0&&mm2_row_get(0)->stype==0&&mm2_row_get(0)->dnum==0,
-       "Shift+clic rouge: ligne supprimée (OFF, champs à zéro)");
+    A2(mm2_row_get(0)->dst==MM2_D_OFF&&mm2_row_get(0)->snum==0&&mm2_row_get(0)->stype==0&&
+       mm2_row_get(0)->dnum==0&&mm2_row_get(0)->ch==0&&mm2_row_get(0)->fade==0,
+       "Shift+clic rouge: ligne supprimée (OFF, tous champs à zéro)");
     mm2_edit_key(0x3E,1,false);                            /* release: avalée */
     /* curseur + pages (rouge) */
     mm2_edit_turn(3,6*MM2_DETENT,false); A2(mm2_edit_cursor()==6&&mm2_edit_page()==1,"curseur +6: slot 7 page 2");

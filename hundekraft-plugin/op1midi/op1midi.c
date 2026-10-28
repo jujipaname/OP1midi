@@ -132,6 +132,7 @@ static const uint8_t fade_secs[5] = { 0, 1, 2, 8, 32 };
 #define FADE_BPS 689                             /* blocs 64 éch. par seconde (44100/64) */
 static volatile uint8_t fade_st;                 /* 0 idle, 1 out, 2 in */
 static volatile uint8_t fade_silence;            /* 1: volume à 0, le main loop doit sauter */
+static volatile uint8_t fade_secs_v;             /* secondes de fade de la ligne déclenchée */
 static int16_t fade_orig[4], fade_lo[4];
 static uint8_t fade_has[4];
 static uint32_t fade_len, fade_blocks;
@@ -149,7 +150,7 @@ static void fade_start(void)                     /* main loop: armé la descente
         fade_has[t] = (uint8_t)(fade_orig[t] != fade_lo[t]);
     }
     fade_blocks = 0;
-    fade_len = (uint32_t)fade_secs[mm2_fade()] * FADE_BPS;
+    fade_len = (uint32_t)fade_secs[fade_secs_v % 5] * FADE_BPS;
     fade_st = 1;
     fade_silence = 0;
 }
@@ -183,10 +184,10 @@ static void snd_inject(int slot);
 
 static void act_snd(int key) { pq_push(K_SND, key, 0); }
 static void act_tape(int tape) { pq_push(K_TAPE, tape, 0); }
-static void act_mute(int track) { pq_push(K_MUTE, track, 0); }
-static void act_marker(int local) { pq_push(K_MARKER, local, 0); }
-static void act_mnext(void) { pq_push(K_MNEXT, 0, 0); }
-static void act_mprev(void) { pq_push(K_MPREV, 0, 0); }
+static void act_mute(int track, int fade) { pq_push(K_MUTE, track, fade); }
+static void act_marker(int local, int fade) { pq_push(K_MARKER, local, fade); }
+static void act_mnext(int fade) { pq_push(K_MNEXT, fade, 0); }
+static void act_mprev(int fade) { pq_push(K_MPREV, fade, 0); }
 
 static void start_fade_in(void)
 {
@@ -250,12 +251,13 @@ static void drain(void)                          /* main loop */
             mm2_env e;
             env_query(&e);
             if (!e.tape_mode || e.punch || (e.raw_state != 3 && e.raw_state != 10)) continue;
-            if (e.raw_state == 10 && mm2_fade()) {               /* en lecture: fade si réglé */
+            if (e.raw_state == 10 && p.b) {                      /* en lecture: fade de la ligne si réglé */
                 if (fade_st) continue;                           /* fade en cours: ignore */
                 j_kind = p.kind == K_MARKER ? J_MARKER : (p.kind == K_MNEXT ? J_NEXT : J_PREV);
                 j_pos = p.kind == K_MARKER ? marker_pos(p.a) : 0;
                 if (j_kind == J_MARKER && j_pos < 0) continue;
                 j_pending = 1;
+                fade_secs_v = p.b;                               /* fade de la ligne */
                 fade_start();
                 continue;
             }
@@ -349,11 +351,11 @@ static int input(const op1_input *in)
         return consumed;                                          /* 0: sortie, la touche agit */
     }
     if (mm2_edit_view()) {
-        int f0 = mm2_fade();
+        int f0 = mm2_row_get(mm2_edit_cursor())->fade;
         mm2_edit_turn(in->code, in->delta, in->shift);
-        if (in->type == OP1_IN_KNOB && in->code == 2 && mm2_fade() != f0) {
+        if (in->type == OP1_IN_KNOB && in->code == 2 && mm2_row_get(mm2_edit_cursor())->fade != f0) {
             static const char *const fn[] = { "FADE OFF", "FADE 1S", "FADE 2S", "FADE 8S", "FADE 32S" };
-            op1_toast(fn[mm2_fade()]);           /* le fade n'a plus d'affichage permanent */
+            op1_toast(fn[mm2_row_get(mm2_edit_cursor())->fade]);
         }
         return 1;
     }
@@ -364,14 +366,15 @@ static int input(const op1_input *in)
  * randomiser du kennel), colonnes aux couleurs des encodeurs, curseur en rouge ---- */
 static const uint8_t c_red[4] = { 0xFF, 0x4E, 0x3F, 0xFF }, c_white[4] = { 0xFF, 0xFF, 0xFF, 0xFF },
                      c_green[4] = { 0x00, 0xED, 0x95, 0xFF }, c_black[4] = { 0, 0, 0, 0xFF },
-                     c_blue[4] = { 0x4D, 0x9E, 0xFF, 0xFF };
+                     c_blue[4] = { 0x4D, 0x9E, 0xFF, 0xFF }, c_violet[4] = { 0x9B, 0x5D, 0xFF, 0xFF };
+static const uint8_t *stCol_v;                   /* couleur de la colonne type (contextuelle) */
 #define ES   OP1_Q10(5) / 2
 #define EW   0x600
 #define X_SL OP1_Q10(8)                            /* n° de slot (rouge) */
 #define X_ST OP1_Q10(34)                           /* type source (bleu) */
 #define X_SN OP1_Q10(90)                           /* n° source (bleu) */
-#define X_DT OP1_Q10(140)                          /* destination (vert) */
-#define X_DN OP1_Q10(210)                          /* n° destination (blanc) */
+#define X_DST OP1_Q10(140)                         /* destination + n° (vert) */
+#define X_CH OP1_Q10(240)                          /* canal de la ligne (blanc) */
 #define Y_T  OP1_Q10(10)
 #define Y0   OP1_Q10(40)
 #define DY   OP1_Q10(26)
@@ -419,15 +422,22 @@ static char *put_num(char *e, int v)                       /* 0..255 */
 static const char *const st_names[] = { "NOTE", "CC", "PC" };
 static const char *const dst_names[] = { "--", "SND", "TAPE", "MUT", "MRK", "M+", "M-" };
 static const char *const fade_names[] = { "OFF", "1S", "2S", "8S", "32S" };
-static const char *ch_disp(void)
+static const char *rowChDisp(const mm2_row *w)             /* canal de la ligne */
 {
-    int ch = mm2_channel();
+    int ch = w->ch ? w->ch : MM2_CH_ALL;                   /* 0 = non réglé: ALL */
     if (ch == MM2_CH_ALL) return "ALL";
-    if (ch == MM2_CH_OFF) return "OFF";
     static char b[6];
     char *e = put_str(b, "CH");
     put_num(e, ch);
     return b;
+}
+
+static void mm_cell(void *r, int x0, int x1, int y, const uint8_t *c)   /* fond de cellule (surbrillance) */
+{
+    for (int yy = y - 4; yy <= y + 16; yy += 2) {
+        op1_pt a = { OP1_Q10(x0), OP1_Q10(yy) }, b = { OP1_Q10(x1), OP1_Q10(yy) };
+        op1_raster_line(r, &a, &b, OP1_Q10(2), c);
+    }
 }
 
 static void overlay(void *r, int32_t screen)
@@ -438,7 +448,7 @@ static void overlay(void *r, int32_t screen)
     mm_panel(r);
     int page = mm2_edit_page(), cur = mm2_edit_cursor();
     sf_text(r, X_SL, Y_T, ES, "MIDI MAP", EW, c_white);
-    char b[10];
+    char b[12];
     char *e = put_str(b, "P");
     e = put_num(e, page + 1);
     put_str(e, "/4");
@@ -446,24 +456,35 @@ static void overlay(void *r, int32_t screen)
     for (int k = 0; k < 4; k++) {
         int i = page * 4 + k;
         const mm2_row *w = mm2_row_get(i);
-        const uint8_t *col = i == cur ? c_red : c_white;
-        const uint8_t *csrc = i == cur ? c_red : c_blue;
-        const uint8_t *cdst = i == cur ? c_red : c_green;
+        int cur_ = i == cur;
+        const uint8_t *col = cur_ ? c_black : c_white;         /* curseur: typo noire sur fond */
+        const uint8_t *csrc = cur_ ? c_black : c_blue;
+        const uint8_t *cdst = cur_ ? c_black : c_green;
+        const uint8_t *csl = cur_ ? c_black : c_violet;
         int y = Y0 + k * DY;
+        if (cur_) {                                            /* surbrillance: fond = couleur de colonne */
+            mm_cell(r, 5, 32, y, c_violet);
+            mm_cell(r, 32, 88, y, c_blue);
+            mm_cell(r, 88, 138, y, c_blue);
+            mm_cell(r, 138, 236, y, c_green);
+            mm_cell(r, 236, 314, y, c_white);
+        }
         put_num(b, i + 1);
-        sf_text(r, X_SL, y, ES, b, EW, c_red);
-        const char *stTxt = st_names[w->stype];                /* colonne type contextuelle */
-        const uint8_t *stCol = csrc;
-        if (i == cur && mm2_edit_learning()) { stTxt = "LRN"; stCol = c_red; }
-        else if (i == cur && sh_held) { stTxt = ch_disp(); stCol = c_blue; }
-        sf_text(r, X_ST, y, ES, stTxt, EW, stCol);
+        sf_text(r, X_SL, y, ES, b, EW, csl);
+        sf_text(r, X_ST, y, ES, st_names[w->stype], EW, csrc);
+        const char *stTxt;                                     /* colonne type contextuelle */
+        if (i == cur && mm2_edit_learning()) { stTxt = "LRN"; stCol_v = c_black; }
+        else if (i == cur && sh_held) { stTxt = rowChDisp(w); stCol_v = c_black; }
+        else { stTxt = st_names[w->stype]; stCol_v = csrc; }
+        sf_text(r, X_ST, y, ES, stTxt, EW, stCol_v);
         put_num(b, w->snum);
         sf_text(r, X_SN, y, ES, b, EW, csrc);
-        sf_text(r, X_DT, y, ES, dst_names[w->dst], EW, cdst);
+        e = put_str(b, dst_names[w->dst]);                     /* destination + numéro fusionnés */
         int lo, hi;
         mm2_dnum_range(w->dst, &lo, &hi);
-        if (hi > lo) put_num(b, w->dnum); else put_str(b, "--");
-        sf_text(r, X_DN, y, ES, b, EW, col);
+        if (hi > lo) { *e++ = ' '; put_num(e, w->dnum); }
+        sf_text(r, X_DST, y, ES, b, EW, cdst);
+        sf_text(r, X_CH, y, ES, rowChDisp(w), EW, col);        /* canal de la ligne (blanc) */
     }
 }
 

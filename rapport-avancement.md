@@ -280,3 +280,27 @@ Retours d'interface de l'utilisateur → remaniement des rôles (plus d'affichag
 
 Reste : test matériel v4, README utilisateur, itérations UI suivantes.
 
+## 12. v5 — canal et fade par slot, surbrillance (28 octobre 2026)
+
+Ajustements demandés après relecture du simulateur :
+
+- **Canal MIDI PAR SLOT** : chaque ligne porte son canal (0 = non réglé → traité ALL ; 1..16 ;
+  ALL). Édition : **Shift + rotation bleu** sur le slot courant (cycle 1..16 → ALL). Le canal
+  global (`mmch`) disparaît du dispatch et du modèle. Format `mmv` = 4 (ancien → reset).
+- **Destination + numéro fusionnés** : la colonne verte affiche `MRK 11`, `TAPE 2`, `SND 3`…
+  (le numéro était auparavant dans une colonne séparée) ; la colonne blanche libérée affiche le
+  **canal de chaque ligne** (`ALL` / `CH n`).
+- **Fade PAR SLOT** : `row.fade` (OFF/1s/2s/8s/32s), édité par le blanc sur le slot courant ;
+  le moteur de fade utilise la valeur de la ligne déclenchée et **ne s'applique pour l'instant
+  qu'aux destinations MUTE / MRK / M+ / M-** (SND/TAPE ignorent le fade).
+- **Surbrillance du curseur** : chaque cellule de la ligne sélectionnée prend le fond de sa
+  couleur de colonne (violet/bleu/vert/blanc) avec la typo en **noir**.
+- **Chiffres de slot en violet** (#9B5DFF).
+- **`op1midi.knl` v5** : 15 600 octets, .text 7720, 435 relocations, **17 imports tous
+  présents**, 0 warning. `mm2_test` v5 (codec ch/fade, canal par ligne, fade par ligne vers les
+  hooks, migration `mmv`=4, learn préservant le canal, delete remettant tout à zéro) → **vert** ;
+  simulateur : **41 self-tests verts**.
+
+Reste : test matériel v5, README utilisateur.
+
+

@@ -51,6 +51,13 @@ INSTALL
   managed by the workshop. Save a disk-mode backup first (see install-recuperation.md in the repository).
 
 CHANGES
+- v5 (2026-10-28): per-slot channel and fade. Each row carries its own MIDI channel (unset =
+  ALL; Shift + blue turn edits the cursor row's channel — no global channel any more) and its
+  own fade (white turn edits the cursor row's fade; the fade engine uses the triggered row's
+  value and only applies to MUTE / MRK / M+ / M- actions for now). The destination and its
+  number render as one green cell ("MRK 11"); the freed white column shows each row's channel.
+  The cursor row is highlighted: each cell's background takes its column colour with black text;
+  the slot numbers are violet. Settings format 'mmv' = 4 (older rows reset). 17 imports.
 - v4 (2026-10-28): control map reworked per user feedback (no permanent header displays).
   Blue: click cycles the source type; Shift + click toggles MIDI learn ON/OFF; turn = source
   number; Shift + turn = global MIDI channel — while Shift is held, the cursor row's type column
