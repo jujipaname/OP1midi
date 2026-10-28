@@ -51,6 +51,13 @@ INSTALL
   managed by the workshop. Save a disk-mode backup first (see install-recuperation.md in the repository).
 
 CHANGES
+- v6 (2026-10-28): control map shifted for encoder/column colour continuity (blue, green, white,
+  red left to right). Blue: turn = cursor over the 16 slots (page follows). Green: click cycles
+  the source type; Shift + click toggles MIDI learn; turn = source number; Shift + turn = the
+  row's MIDI channel. White: turn = destination + number (flat list); Shift + click DELETES the
+  row. Red: turn = the row's fade. Screen columns now use the encoder colours (blue/green/white/
+  red) with the cursor row highlighted (column-colour background, black text). Settings format
+  unchanged ('mmv' = 4). 17 imports.
 - v5.1 (2026-10-28): display polish. Slot numbers back to red (violet dropped); the white column
   shows the row's FADE (OFF/1s/2s/8s/32s) instead of the channel; the row's channel appears in
   the blue type column only while Shift is held (LRN keeps priority while learning). The

@@ -196,12 +196,12 @@ function key(code, pressed, sh){
     log("sortie: "+keyName(code)+(sh?" (Shift: consommée)":" -> la touche agit"),"act"); return sh?1:0; }
   if(code===36){ page=page?page-1:3; cur=page*4; render(); return 1; }
   if(code===37){ page=page===3?0:page+1; cur=page*4; render(); return 1; }
-  if(code===59){                                    /* bleu: type / Shift: learn on-off */
+  if(code===60){                                    /* vert: type / Shift: learn on-off */
     if(sh){ learn=!learn; log(learn?"LEARN armé (dst "+DST_NAMES[rows[cur].dst]+")":"LEARN désarmé","act"); render(); return 1; }
     rows[cur].stype = rows[cur].stype===S_MAX?0:rows[cur].stype+1;
     render(); return 1;
   }
-  if(code===62){                                    /* rouge: Shift = supprimer la ligne */
+  if(code===61){                                    /* blanc: Shift = supprimer la ligne */
     if(sh) delRow();
     return 1;
   }
@@ -223,19 +223,19 @@ function turn(knob, delta, sh){
   acc[knob]+=delta; let st=Math.trunc(acc[knob]/1024); if(!st) return;
   acc[knob]-=st*1024;
   const r=rows[cur];
-  if(knob===3){ let c=cur+st; c=Math.max(0,Math.min(15,c)); cur=c; page=Math.floor(cur/4); }
-  else if(knob===0){ if(sh){ while(st>0){ r.ch=r.ch>=17?1:r.ch+1; st--; }
+  if(knob===0){ let c=cur+st; c=Math.max(0,Math.min(15,c)); cur=c; page=Math.floor(cur/4); }
+  else if(knob===1){ if(sh){ while(st>0){ r.ch=r.ch>=17?1:r.ch+1; st--; }
                               while(st<0){ r.ch=(r.ch>1)?r.ch-1:17; st++; } }
     else { while(st>0){ r.snum=r.snum>=127?0:r.snum+1; st--; }
            while(st<0){ r.snum=r.snum?r.snum-1:127; st++; } } }
-  else if(knob===1){                                          /* vert: destination en liste plate */
+  else if(knob===2){                                          /* blanc: destination en liste plate */
     let pos=flatPos(r);
     while(st>0){ pos=pos>=50?0:pos+1; st--; }
     while(st<0){ pos=pos<=0?50:pos-1; st++; }
     flatSet(r,pos);
     if(!r.ch) r.ch=17;                                        /* ligne nouvellement assignée */
   }
-  else if(knob===2){ const f0=r.fade; while(st>0){ r.fade=r.fade>=4?0:r.fade+1; st--; }
+  else if(knob===3){ const f0=r.fade; while(st>0){ r.fade=r.fade>=4?0:r.fade+1; st--; }
     while(st<0){ r.fade=r.fade?r.fade-1:4; st++; }
     if(r.fade!==f0) log("FADE ligne "+(cur+1)+": "+FADE_NAMES[r.fade],"act"); }
   render(); save();
@@ -390,10 +390,10 @@ function render(){ if(!HASDOM) return;
 if(HASDOM){
 load();
 const scr=document.getElementById('scr'); render(); drawBars();
-const KNOBS=[["BLEU",C_BLUE,"type (clic) / n° (rot)","Shift+clic: LEARN"],
-  ["VERT",C_GREEN,"destination (rot)","Shift+rot: canal"],
-  ["BLANC",C_WHITE,"n° destination (rot)","Shift+rot: fade"],
-  ["ROUGE",C_RED,"curseur (rot)",""]];
+const KNOBS=[["BLEU",C_BLUE,"curseur (rot)",""],
+  ["VERT",C_GREEN,"type (clic) / n° (rot)","Shift+clic: LEARN · Shift+rot: canal"],
+  ["BLANC",C_WHITE,"destination (rot)","Shift+clic: supprimer"],
+  ["ROUGE",C_RED,"fade (rot)",""]];
 const knobsEl=document.getElementById('knobs');
 KNOBS.forEach((k,i)=>{
   const d=document.createElement('div'); d.className='kn';
@@ -467,51 +467,56 @@ if(!HASDOM){
   let n=0; const A=(c,m)=>{ if(!c){ console.error("FAIL:",m); process.exit(1); } n++; };
   dev.mode='clock'; dev.raw=3; dev.punch=0; dev.markers=5;
   A(input(61,1,false)===1&&open===true,"ouverture: appui blanc en clock");
-  turn(0,3*1024,false); A(rows[cur].snum===3,"bleu: snum 3 (slot 1)");
-  input(59,1,false); input(59,1,false); input(59,1,false); A(rows[cur].stype===0,"bleu clic x3: wrap PC->NOTE");
-  turn(1,1*1024,false); A(rows[cur].dst===D_SND&&rows[cur].dnum===1&&rows[cur].ch===17,"vert +1: SND 1 + ch ALL auto");
-  turn(1,7*1024,false); A(rows[cur].dst===D_SND&&rows[cur].dnum===8,"vert +7: SND 8");
-  turn(1,1*1024,false); A(rows[cur].dst===D_TAPE&&rows[cur].dnum===1,"vert: SND8->TAPE 1");
-  turn(1,4*1024,false); A(rows[cur].dst===D_MUTE&&rows[cur].dnum===1,"vert: TAPE4->MUT 1");
-  turn(1,4*1024,false); A(rows[cur].dst===D_MRK&&rows[cur].dnum===1,"vert: MUT1->MRK 1");
-  turn(1,31*1024,false); A(rows[cur].dst===D_MRK&&rows[cur].dnum===32,"vert +31: MRK 32");
-  turn(1,2*1024,false); A(rows[cur].dst===D_MRM,"vert +2: MRK32->M+->M-");
-  turn(1,-1*1024,false); A(rows[cur].dst===D_MRP,"vert -1: M-->M+");
-  turn(1,3*1024,false); A(rows[cur].dst===D_SND&&rows[cur].dnum===1,"vert +3: M+->M-->OFF->SND1");
-  turn(2,1*1024,false); A(rows[cur].fade===1,"blanc (sans Shift): fade ligne 0->1");
-  turn(2,4*1024,false); A(rows[cur].fade===0,"blanc +4: fade wrap -> 0");
-  turn(2,-1*1024,false); A(rows[cur].fade===4,"blanc -1: fade 0->32s");
-  turn(2,1*1024,false); A(rows[cur].fade===0,"retour OFF");
-  turn(0,1*1024,true); A(rows[cur].ch===1,"Shift+bleu rot: canal ligne ALL->1");
-  turn(0,16*1024,true); A(rows[cur].ch===17,"canal: 1->...->ALL (16 crans)");
-  turn(0,1*1024,true); A(rows[cur].ch===1,"canal: ALL->1 (wrap)");
-  turn(0,-1*1024,true); A(rows[cur].ch===17,"canal: 1->ALL (sens arrière)");
-  input(59,1,true); A(learn===true,"Shift+clic bleu: learn armé");
-  input(59,1,true); A(learn===false,"Shift+clic bleu: learn désarmé (toggle)");
-  input(59,1,true); A(learn===true,"réarmé");
+  turn(0,6*1024,false); A(cur===6&&page===1,"bleu +6: slot 7 page 2");
+  turn(0,-6*1024,false); A(cur===0,"bleu -6: retour slot 1");
+  turn(1,3*1024,false); A(rows[cur].snum===3,"vert: snum 3");
+  input(60,1,false); A(rows[cur].stype===1,"vert clic: NOTE->CC");
+  input(60,1,false); input(60,1,false); A(rows[cur].stype===0,"vert clic x3: wrap PC->NOTE");
+  turn(2,1*1024,false); A(rows[cur].dst===D_SND&&rows[cur].dnum===1&&rows[cur].ch===17,"blanc +1: SND 1 + ch ALL auto");
+  turn(2,7*1024,false); A(rows[cur].dst===D_SND&&rows[cur].dnum===8,"blanc +7: SND 8");
+  turn(2,1*1024,false); A(rows[cur].dst===D_TAPE&&rows[cur].dnum===1,"blanc: SND8->TAPE 1");
+  turn(2,4*1024,false); A(rows[cur].dst===D_MUTE&&rows[cur].dnum===1,"blanc: TAPE4->MUT 1");
+  turn(2,4*1024,false); A(rows[cur].dst===D_MRK&&rows[cur].dnum===1,"blanc: MUT1->MRK 1");
+  turn(2,31*1024,false); A(rows[cur].dst===D_MRK&&rows[cur].dnum===32,"blanc +31: MRK 32");
+  turn(2,2*1024,false); A(rows[cur].dst===D_MRM,"blanc +2: MRK32->M+->M-");
+  turn(2,-1*1024,false); A(rows[cur].dst===D_MRP,"blanc -1: M-->M+");
+  turn(2,3*1024,false); A(rows[cur].dst===D_SND&&rows[cur].dnum===1,"blanc +3: M+->M-->OFF->SND1");
+  turn(3,1*1024,false); A(rows[cur].fade===1,"rouge: fade ligne 0->1");
+  turn(3,4*1024,false); A(rows[cur].fade===0,"rouge +4: fade wrap -> 0");
+  turn(3,-1*1024,false); A(rows[cur].fade===4,"rouge -1: fade 0->32s");
+  turn(3,1*1024,false); A(rows[cur].fade===0,"retour OFF");
+  turn(1,1*1024,true); A(rows[cur].ch===1,"Shift+vert: canal ALL->1");
+  turn(1,16*1024,true); A(rows[cur].ch===17,"canal: 1->...->ALL (16 crans)");
+  turn(1,1*1024,true); A(rows[cur].ch===1,"canal: ALL->1 (wrap)");
+  turn(1,-1*1024,true); A(rows[cur].ch===17,"canal: 1->ALL (sens arrière)");
+  input(60,1,true); A(learn===true,"Shift+clic vert: learn armé");
+  input(60,1,true); A(learn===false,"Shift+clic vert: learn désarmé (toggle)");
+  input(60,1,true); A(learn===true,"réarmé");
   learnFeedMidi(1,44); A(!learn&&rows[cur].snum===44&&rows[cur].stype===1,"learn capture CC44");
-  A(rows[cur].dst===D_SND&&rows[cur].ch===17,"learn: garde dst + canal de la ligne (17)");
-  input(59,1,true); A(learn===true,"learn réarmé (touche)");
+  A(rows[cur].dst===D_SND&&rows[cur].ch===17,"learn: garde dst + canal");
+  input(60,1,true); A(learn===true,"learn réarmé (touche)");
   learnFeedKey(7); A(!learn&&rows[cur].dnum===7,"learn touche: slot 7");
-  input(62,1,true); A(rows[cur].dst===0&&rows[cur].snum===0&&rows[cur].stype===0&&rows[cur].dnum===0&&
-    rows[cur].ch===0&&rows[cur].fade===0,"Shift+clic rouge: ligne supprimée (tout à zéro)");
-  input(62,1,false); A(open===true,"release rouge: avalée (modal)");
-  turn(3,6*1024,false); A(cur===6&&page===1,"curseur +6: slot 7 page 2");
+  input(61,1,true); A(rows[cur].dst===0&&rows[cur].snum===0&&rows[cur].stype===0&&rows[cur].dnum===0&&
+    rows[cur].ch===0&&rows[cur].fade===0,"Shift+clic blanc: ligne supprimée (tout à zéro)");
+  input(61,1,false); A(open===true,"release blanc: avalée (modal)");
+  input(62,1,false); A(open===true,"rouge clic sans shift: avalé (modal)");
+  input(59,1,false); A(open===true,"bleu clic sans shift: avalé (modal)");
+  turn(0,6*1024,false); A(cur===6&&page===1,"curseur +6: slot 7 page 2");
   input(36,1,false); A(page===0&&cur===0,"flèche gauche: page 1");
   A(input(0,1,false)===1&&!open,"Help: ferme (consommé)");
   input(61,1,false); A(open===true,"réouverture");
   A(input(4,1,false)===0&&!open,"sortie TAPE sans shift: passthrough");
   input(61,1,false); A(input(4,1,true)===1&&!open,"sortie TAPE avec shift: consommée");
-  /* dispatch v5: canal par ligne */
+  /* dispatch v5 inchangé: canal par ligne */
   open=false; dev.raw=3; dev.punch=0;
-  rows[0]={ch:0,stype:1,snum:80,dst:D_TAPE,dnum:2,fade:0};       /* ch 0 = ALL */
+  rows[0]={ch:0,stype:1,snum:80,dst:D_TAPE,dnum:2,fade:0};
   A(dispatch("CC",80,6,127)===true,"ch unset=ALL: canal 6 consommé");
   rows[0].ch=4; A(dispatch("CC",80,6,0)===false,"canal 6 ignoré (ligne ch 4)");
-  A(dispatch("CC",80,4,0)===true&&dispatch("CC",80,4,127)===true,"canal 4: front déclenche (TAPE de la ligne 0)");
+  A(dispatch("CC",80,4,0)===true&&dispatch("CC",80,4,127)===true,"canal 4: front déclenche (TAPE)");
   rows[0].ch=17; rows[1]={ch:2,stype:1,snum:80,dst:D_MUTE,dnum:3,fade:2};
   A(dispatch("CC",80,2,0)===true,"ligne 0 (ALL) d'abord: consommé");
   A(bars.mute[2]===0,"ligne 1 pas atteinte (première ligne gagnante)");
-  rows[0].dst=0;                                                    /* ligne 0 -> OFF */
+  rows[0].dst=0;
   A(dispatch("CC",80,2,0)===true&&dispatch("CC",80,2,127)===true&&bars.mute[2]===1,
     "ligne 0 OFF: ligne 1 (canal 2) MUTE 3 togglé");
   console.log("self-test: "+n+" vérifications OK");

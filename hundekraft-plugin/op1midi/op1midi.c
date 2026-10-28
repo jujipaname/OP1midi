@@ -458,9 +458,9 @@ static void overlay(void *r, int32_t screen)
         const mm2_row *w = mm2_row_get(i);
         int cur_ = i == cur;
         const uint8_t *col = cur_ ? c_black : c_white;         /* curseur: typo noire sur fond */
-        const uint8_t *csrc = cur_ ? c_black : c_blue;
-        const uint8_t *cdst = cur_ ? c_black : c_green;
-        const uint8_t *csl = cur_ ? c_black : c_red;
+        const uint8_t *csrc = cur_ ? c_black : c_green;
+        const uint8_t *cdst = cur_ ? c_black : c_white;
+        const uint8_t *csl = cur_ ? c_black : c_blue;
         int y = Y0 + k * DY;
         if (cur_) {                                            /* surbrillance: fond = couleur de colonne */
             mm_cell(r, 5, 32, y, c_red);
@@ -484,7 +484,8 @@ static void overlay(void *r, int32_t screen)
         mm2_dnum_range(w->dst, &lo, &hi);
         if (hi > lo) { *e++ = ' '; put_num(e, w->dnum); }
         sf_text(r, X_DST, y, ES, b, EW, cdst);
-        sf_text(r, X_CH, y, ES, fade_names[w->fade], EW, col); /* fade de la ligne (blanc) */
+        const uint8_t *cfade = cur_ ? c_black : c_red;
+        sf_text(r, X_CH, y, ES, fade_names[w->fade], EW, cfade); /* fade de la ligne (rouge) */
     }
 }
 

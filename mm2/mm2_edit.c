@@ -1,13 +1,14 @@
 /* Copyright (C) 2026 OP1midi. GPL-3.0-or-later with the OP-1 firmware permission (see LICENSE and NOTICE). */
-/* MM2 éditeur v4: machine à états pure (pas de rendu). Voir mm2.h.
- * Édition live (pas de mode édition):
- *   bleu: clic = type source / Shift+clic = learn on-off; rotation = n° source / Shift = canal
- *   vert: rotation = destination + n° en liste plate (OFF, SND 1..8, TAPE 1..4, MUTE 1..4,
- *         MRK 1..32, M+, M- — les 4 tapes et les 32 markers défilent)
- *   blanc: rotation = fade (plus de Shift)
- *   rouge: rotation = curseur (16 slots, la page suit) / Shift+clic = supprimer la ligne
- * Rendu côté intégration: colonnes aux couleurs des encodeurs, curseur en rouge; tant que Shift
- * est tenu, la colonne type du curseur affiche le canal global; learn armé, elle affiche LRN. */
+/* MM2 éditeur v6: machine à états pure (pas de rendu). Voir mm2.h.
+ * Édition live (pas de mode édition) — continuité encodeurs/colonnes (bleu vert blanc rouge):
+ *   bleu: rotation = curseur (16 slots, la page suit)
+ *   vert: clic = type source / Shift+clic = learn on-off; rotation = n° source / Shift = canal
+ *   blanc: rotation = destination + n° en liste plate (OFF, SND 1..8, TAPE 1..4, MUTE 1..4,
+ *          MRK 1..32, M+, M- — les 4 tapes et les 32 markers défilent) / Shift+clic = supprimer
+ *   rouge: rotation = fade de la ligne (OFF/1s/2s/8s/32s)
+ * Rendu côté intégration: colonnes bleu/vert/blanc/rouge alignées aux encodeurs, curseur en
+ * surbrillance (fond couleur de colonne, typo noire); Shift tenu, la colonne source du curseur
+ * affiche le canal; learn armé, elle affiche LRN. */
 #include "mm2.h"
 
 mm2_row *mm2_row_edit(int i);              /* mm2_core.c */
@@ -63,13 +64,13 @@ int mm2_edit_key(int code, int pressed, int shift)
     }
     if (code == 0x24) { page = (uint8_t)(page ? page - 1 : 3); cur = (uint8_t)(page * 4); return 1; }
     if (code == 0x25) { page = (uint8_t)(page == 3 ? 0 : page + 1); cur = (uint8_t)(page * 4); return 1; }
-    if (code == 0x3B) {                                                /* bleu: type / Shift: learn on-off */
+    if (code == 0x3C) {                                                /* vert: type / Shift: learn on-off */
         if (shift) { learn = (uint8_t)(learn ^ 1); return 1; }
         mm2_row *r = mm2_row_edit(cur);
         r->stype = (uint8_t)(r->stype == MM2_S_MAX ? MM2_S_NOTE : r->stype + 1);
         return 1;
     }
-    if (code == 0x3E) {                                                /* rouge: Shift = supprimer */
+    if (code == 0x3D) {                                                /* blanc: Shift = supprimer */
         if (shift) mm2_edit_delete();
         return 1;
     }
@@ -108,13 +109,13 @@ void mm2_edit_turn(int knob, int delta, int shift)
     if (!st) return;
     acc[knob] -= st * MM2_DETENT;
     mm2_row *r = mm2_row_edit(cur);
-    if (knob == 3) {                                                   /* rouge: curseur */
+    if (knob == 0) {                                                   /* bleu: curseur */
         int c = cur + st;
         if (c < 0) c = 0;
         if (c > MM2_ROWS - 1) c = MM2_ROWS - 1;
         cur = (uint8_t)c;
         page = (uint8_t)(cur / 4);
-    } else if (knob == 0) {                                            /* bleu: n° source / Shift: canal de ligne */
+    } else if (knob == 1) {                                            /* vert: n° source / Shift: canal de ligne */
         if (shift) {
             while (st > 0) { r->ch = r->ch >= MM2_CH_ALL ? 1 : (uint8_t)(r->ch + 1); st--; }
             while (st < 0) { r->ch = r->ch > 1 ? (uint8_t)(r->ch - 1) : MM2_CH_ALL; st++; }
@@ -122,13 +123,13 @@ void mm2_edit_turn(int knob, int delta, int shift)
             while (st > 0) { r->snum = r->snum >= 127 ? 0 : (uint8_t)(r->snum + 1); st--; }
             while (st < 0) { r->snum = r->snum ? (uint8_t)(r->snum - 1) : 127; st++; }
         }
-    } else if (knob == 1) {                                            /* vert: destination en liste plate */
+    } else if (knob == 2) {                                            /* blanc: destination en liste plate */
         int pos = flat_pos(r);
         while (st > 0) { pos = pos >= 50 ? 0 : pos + 1; st--; }
         while (st < 0) { pos = pos <= 0 ? 50 : pos - 1; st++; }
         flat_set(r, pos);
         if (!r->ch) r->ch = MM2_CH_ALL;                            /* ligne nouvellement assignée */
-    } else if (knob == 2) {                                            /* blanc: fade de la ligne */
+    } else if (knob == 3) {                                            /* rouge: fade de la ligne */
         while (st > 0) { r->fade = r->fade >= 4 ? 0 : (uint8_t)(r->fade + 1); st--; }
         while (st < 0) { r->fade = r->fade ? (uint8_t)(r->fade - 1) : 4; st++; }
     }

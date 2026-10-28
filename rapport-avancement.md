@@ -303,6 +303,27 @@ Ajustements demandés après relecture du simulateur :
 
 Reste : test matériel v5, README utilisateur.
 
+## 14. v6 — continuité couleurs/fonctions (28 octobre 2026)
+
+Décalage demandé par l'utilisateur (continuité encodeurs ↔ colonnes) :
+
+| Contrôle | Simple | Shift |
+|---|---|---|
+| **Bleu** | rotation = curseur (16 slots, page suit) | — |
+| **Vert** | clic = type (NOTE/CC/PC) · rotation = n° source | rotation = **canal de la ligne** · clic = **learn ON/OFF** |
+| **Blanc** | rotation = **destination + n°** (liste plate) | clic = **supprimer la ligne** |
+| **Rouge** | rotation = **fade de la ligne** | — |
+
+Colonnes de l'écran : bleu (slot), vert (source), blanc (destination), rouge (fade) — curseur en
+surbrillance (fond couleur de colonne + typo noire). La numérotation des slots passe donc en
+bleu (la préférence rouge antérieure est supplantée par la continuité — revenir = 1 ligne).
+
+**`op1midi.knl` v6** : 15 744 octets, 17 imports, 0 warning. `mm2_test` v6 vert (rôles décalés,
+delete déplacé sur blanc) ; simulateur : **46 self-tests verts** + smoke rendu.
+
+Reste : choix de police (propositions faites), test matériel, README utilisateur.
+
+
 ## 13. v5.1 — affichages (28 octobre 2026)
 
 - **Diagnostic « chiffres de destination absents »** : la cause était le **simulateur** — sa

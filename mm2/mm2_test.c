@@ -219,62 +219,58 @@ int main(void)
     assert(mm2_row_get(0)->dst == MM2_D_OFF && fake_get("mmv", -1) == MM2_FMT);
     for (int i = 0; i < MM2_ROWS; i++) assert(mm2_row_get(i)->dst == MM2_D_OFF);
 
-    /* ---- éditeur v4: vert = liste plate, blanc = fade, learn toggle, delete ---- */
+    /* ---- éditeur v6: bleu=curseur, vert=source+canal, blanc=destination, rouge=fade ---- */
     reset();
     mm2_edit_open();
     A2(mm2_edit_view() && mm2_edit_cursor()==0 && !mm2_edit_learning(), "éditeur ouvert");
-    mm2_edit_turn(0,3*MM2_DETENT,false); A2(mm2_row_get(0)->snum==3,"bleu: snum 3");
-    mm2_edit_key(0x3B,1,false); A2(mm2_row_get(0)->stype==MM2_S_CC,"bleu clic: NOTE->CC");
-    mm2_edit_key(0x3B,1,false); mm2_edit_key(0x3B,1,false);
-    A2(mm2_row_get(0)->stype==MM2_S_NOTE,"bleu clic x3: wrap PC->NOTE");
-    mm2_edit_turn(1,1*MM2_DETENT,false); A2(mm2_row_get(0)->dst==MM2_D_SND&&mm2_row_get(0)->dnum==1,"vert +1: SND 1");
-    mm2_edit_turn(1,7*MM2_DETENT,false); A2(mm2_row_get(0)->dst==MM2_D_SND&&mm2_row_get(0)->dnum==8,"vert +7: SND 8");
-    mm2_edit_turn(1,1*MM2_DETENT,false); A2(mm2_row_get(0)->dst==MM2_D_TAPE&&mm2_row_get(0)->dnum==1,"vert: SND8->TAPE 1");
-    mm2_edit_turn(1,4*MM2_DETENT,false); A2(mm2_row_get(0)->dst==MM2_D_MUTE&&mm2_row_get(0)->dnum==1,"vert: TAPE4->MUT 1");
-    mm2_edit_turn(1,4*MM2_DETENT,false); A2(mm2_row_get(0)->dst==MM2_D_MRK&&mm2_row_get(0)->dnum==1,"vert: MUT1->MRK 1");
-    mm2_edit_turn(1,31*MM2_DETENT,false); A2(mm2_row_get(0)->dst==MM2_D_MRK&&mm2_row_get(0)->dnum==32,"vert +31: MRK 32");
-    mm2_edit_turn(1,2*MM2_DETENT,false); A2(mm2_row_get(0)->dst==MM2_D_MRM,"vert +2: MRK32->M+->M-");
-    mm2_edit_turn(1,-1*MM2_DETENT,false); A2(mm2_row_get(0)->dst==MM2_D_MRP,"vert -1: M-->M+");
-    mm2_edit_turn(1,3*MM2_DETENT,false); A2(mm2_row_get(0)->dst==MM2_D_SND&&mm2_row_get(0)->dnum==1,"vert +3: M+->M-->OFF->SND1");
-    /* blanc: fade de la ligne (sans Shift) */
-    mm2_edit_turn(2,1*MM2_DETENT,false); A2(mm2_row_get(0)->fade==1,"blanc: fade ligne 0->1");
-    mm2_edit_turn(2,4*MM2_DETENT,false); A2(mm2_row_get(0)->fade==0,"blanc +4: fade wrap -> 0");
-    mm2_edit_turn(2,-1*MM2_DETENT,false); A2(mm2_row_get(0)->fade==4,"blanc -1: fade 0->32s");
-    mm2_edit_turn(2,1*MM2_DETENT,false); A2(mm2_row_get(0)->fade==0,"retour OFF");
-    /* Shift + bleu rotation: canal de la ligne */
-    mm2_edit_turn(0,1*MM2_DETENT,true); A2(mm2_row_get(0)->ch==1,"Shift+bleu: canal ligne 0 (unset->1)");
-    mm2_edit_turn(0,16*MM2_DETENT,true); A2(mm2_row_get(0)->ch==MM2_CH_ALL,"canal: 1->...->ALL (16 crans)");
-    mm2_edit_turn(0,1*MM2_DETENT,true); A2(mm2_row_get(0)->ch==1,"canal: ALL->1 (wrap)");
-    /* Shift + clic bleu: learn toggle */
-    mm2_edit_key(0x3B,1,true); A2(mm2_edit_learning(),"learn armé (Shift+clic bleu)");
-    mm2_edit_key(0x3B,1,true); A2(!mm2_edit_learning(),"learn désarmé (2e Shift+clic)");
-    mm2_edit_key(0x3B,1,true); A2(mm2_edit_learning(),"réarmé");
+    mm2_edit_turn(0,6*MM2_DETENT,false); A2(mm2_edit_cursor()==6&&mm2_edit_page()==1,"bleu +6: slot 7 page 2");
+    mm2_edit_turn(0,-6*MM2_DETENT,false); A2(mm2_edit_cursor()==0,"bleu -6: retour slot 1");
+    mm2_edit_turn(1,3*MM2_DETENT,false); A2(mm2_row_get(0)->snum==3,"vert: snum 3");
+    mm2_edit_key(0x3C,1,false); A2(mm2_row_get(0)->stype==MM2_S_CC,"vert clic: NOTE->CC");
+    mm2_edit_key(0x3C,1,false); mm2_edit_key(0x3C,1,false);
+    A2(mm2_row_get(0)->stype==MM2_S_NOTE,"vert clic x3: wrap PC->NOTE");
+    mm2_edit_turn(2,1*MM2_DETENT,false);
+    A2(mm2_row_get(0)->dst==MM2_D_SND&&mm2_row_get(0)->dnum==1&&mm2_row_get(0)->ch==MM2_CH_ALL,
+       "blanc +1: SND 1 + ch ALL auto");
+    mm2_edit_turn(2,7*MM2_DETENT,false); A2(mm2_row_get(0)->dst==MM2_D_SND&&mm2_row_get(0)->dnum==8,"blanc +7: SND 8");
+    mm2_edit_turn(2,1*MM2_DETENT,false); A2(mm2_row_get(0)->dst==MM2_D_TAPE&&mm2_row_get(0)->dnum==1,"blanc: SND8->TAPE 1");
+    mm2_edit_turn(2,4*MM2_DETENT,false); A2(mm2_row_get(0)->dst==MM2_D_MUTE&&mm2_row_get(0)->dnum==1,"blanc: TAPE4->MUT 1");
+    mm2_edit_turn(2,4*MM2_DETENT,false); A2(mm2_row_get(0)->dst==MM2_D_MRK&&mm2_row_get(0)->dnum==1,"blanc: MUT1->MRK 1");
+    mm2_edit_turn(2,31*MM2_DETENT,false); A2(mm2_row_get(0)->dst==MM2_D_MRK&&mm2_row_get(0)->dnum==32,"blanc +31: MRK 32");
+    mm2_edit_turn(2,2*MM2_DETENT,false); A2(mm2_row_get(0)->dst==MM2_D_MRM,"blanc +2: MRK32->M+->M-");
+    mm2_edit_turn(2,-1*MM2_DETENT,false); A2(mm2_row_get(0)->dst==MM2_D_MRP,"blanc -1: M-->M+");
+    mm2_edit_turn(2,3*MM2_DETENT,false); A2(mm2_row_get(0)->dst==MM2_D_SND&&mm2_row_get(0)->dnum==1,"blanc +3: M+->M-->OFF->SND1");
+    mm2_edit_turn(3,1*MM2_DETENT,false); A2(mm2_row_get(0)->fade==1,"rouge: fade ligne 0->1");
+    mm2_edit_turn(3,4*MM2_DETENT,false); A2(mm2_row_get(0)->fade==0,"rouge +4: fade wrap -> 0");
+    mm2_edit_turn(3,-1*MM2_DETENT,false); A2(mm2_row_get(0)->fade==4,"rouge -1: fade 0->32s");
+    mm2_edit_turn(3,1*MM2_DETENT,false); A2(mm2_row_get(0)->fade==0,"retour OFF");
+    mm2_edit_turn(1,1*MM2_DETENT,true); A2(mm2_row_get(0)->ch==1,"Shift+vert: canal ALL->1");
+    mm2_edit_turn(1,16*MM2_DETENT,true); A2(mm2_row_get(0)->ch==MM2_CH_ALL,"canal: 1->...->ALL (16 crans)");
+    mm2_edit_turn(1,1*MM2_DETENT,true); A2(mm2_row_get(0)->ch==1,"canal: ALL->1 (wrap)");
+    mm2_edit_turn(1,-1*MM2_DETENT,true); A2(mm2_row_get(0)->ch==MM2_CH_ALL,"canal: 1->ALL (sens arrière)");
+    mm2_edit_key(0x3C,1,true); A2(mm2_edit_learning(),"learn armé (Shift+clic vert)");
+    mm2_edit_key(0x3C,1,true); A2(!mm2_edit_learning(),"learn désarmé (2e Shift+clic)");
+    mm2_edit_key(0x3C,1,true); A2(mm2_edit_learning(),"réarmé");
     mm2_edit_learn_feed(MM2_S_CC,44); A2(!mm2_edit_learning()&&mm2_row_get(0)->snum==44&&mm2_row_get(0)->stype==MM2_S_CC,"learn capture CC44");
-    A2(mm2_row_get(0)->dst==MM2_D_SND,"learn: garde la destination SND");
-    A2(mm2_row_get(0)->ch==1,"learn: préserve le canal de la ligne (1)");
-    /* learn touche (dst SND) */
-    mm2_edit_key(0x3B,1,true); A2(mm2_edit_learning(),"learn réarmé (touche)");
+    A2(mm2_row_get(0)->dst==MM2_D_SND&&mm2_row_get(0)->ch==MM2_CH_ALL,"learn: garde dst + canal");
+    mm2_edit_key(0x3C,1,true); A2(mm2_edit_learning(),"learn réarmé (touche)");
     mm2_edit_learn_feed_key(7); A2(!mm2_edit_learning()&&mm2_row_get(0)->dnum==7,"learn touche: slot 7");
-    /* Shift + clic rouge: supprimer la ligne */
-    mm2_edit_key(0x3E,1,true);
+    mm2_edit_key(0x3D,1,true);
     A2(mm2_row_get(0)->dst==MM2_D_OFF&&mm2_row_get(0)->snum==0&&mm2_row_get(0)->stype==0&&
        mm2_row_get(0)->dnum==0&&mm2_row_get(0)->ch==0&&mm2_row_get(0)->fade==0,
-       "Shift+clic rouge: ligne supprimée (OFF, tous champs à zéro)");
-    mm2_edit_key(0x3E,1,false);                            /* release: avalée */
-    /* curseur + pages (rouge) */
-    mm2_edit_turn(3,6*MM2_DETENT,false); A2(mm2_edit_cursor()==6&&mm2_edit_page()==1,"curseur +6: slot 7 page 2");
-    mm2_edit_key(0x24,1,false); A2(mm2_edit_page()==0&&mm2_edit_cursor()==0,"flèche gauche: page 1");
-    /* sorties */
+       "Shift+clic blanc: ligne supprimée (tout à zéro)");
+    mm2_edit_key(0x3D,1,false);                            /* release: avalée */
+    A2(mm2_edit_key(0x3E,1,false)==0&&mm2_edit_view(),"rouge clic sans shift: 0 (la glue avale en modal)");
+    A2(mm2_edit_key(0x3B,1,false)==0&&mm2_edit_view(),"bleu clic sans shift: 0 (la glue avale en modal)");
+    A2(mm2_edit_key(0x25,1,false)==1&&mm2_edit_view(),"flèche droite en éditeur: page suivante");
+    A2(mm2_edit_key(0x24,1,false)==1&&mm2_edit_page()==0,"flèche gauche: page 1");
     A2(mm2_edit_key(0x00,1,false)==1&&!mm2_edit_view(),"Help: ferme (consommé)");
     mm2_edit_open();
     A2(mm2_edit_key(0x04,1,false)==0&&!mm2_edit_view(),"sortie TAPE sans shift: passthrough");
     assert(fake_get("mmr0",-1)>=0);
     mm2_edit_open();
     A2(mm2_edit_key(0x04,1,true)==1&&!mm2_edit_view(),"sortie TAPE avec shift: consommée");
-    mm2_edit_open();
-    A2(mm2_edit_key(0x3E,1,false)==1&&mm2_edit_view(),"rouge clic sans shift: consommé, rien de supprimé");
-    mm2_edit_close(0);
-    A2(!mm2_edit_key(0x25,1,false)&&!mm2_edit_key(0x3B,1,false),"éditeur fermé: touches passent");
+    A2(!mm2_edit_key(0x25,1,false)&&!mm2_edit_key(0x3B,1,false)&&mm2_edit_key(0x3E,1,false)==0,"éditeur fermé: touches passent");
 
     printf("mm2_test: ok\n");
     return 0;
