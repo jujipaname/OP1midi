@@ -14,10 +14,10 @@ int  (*mm2_setting_get)(const char *key, int dflt);
 void (*mm2_setting_put)(const char *key, int val);
 void (*mm2_act_snd)(int key);
 void (*mm2_act_tape)(int tape);
-void (*mm2_act_mute)(int track, int fade);
-void (*mm2_act_marker)(int local, int fade);
-void (*mm2_act_mnext)(int fade);
-void (*mm2_act_mprev)(int fade);
+void (*mm2_act_mute)(int track, int fade, int fmask);
+void (*mm2_act_marker)(int local, int fade, int fmask);
+void (*mm2_act_mnext)(int fade, int fmask);
+void (*mm2_act_mprev)(int fade, int fmask);
 void (*mm2_env_query)(mm2_env *e);
 
 /* clés constantes: les implémentations hôte des réglages stockent le pointeur */
@@ -29,9 +29,10 @@ static const char *const rowkeys[MM2_ROWS] = {
 int mm2_row_pack(const mm2_row *r)
 {
     if (!r || r->ch > MM2_CH_ALL || r->stype > MM2_S_MAX || r->snum > 127 ||
-        r->dst > MM2_D_MAX || r->fade > 4) return -1;
+        r->dst > MM2_D_MAX || r->fade > 4 || r->fmask > MM2_FM_MAX) return -1;
     return (int)((uint32_t)r->ch | (uint32_t)r->stype << 5 | (uint32_t)r->snum << 7 |
-                 (uint32_t)r->dst << 14 | (uint32_t)r->dnum << 17 | (uint32_t)r->fade << 25);
+                 (uint32_t)r->dst << 14 | (uint32_t)r->dnum << 17 | (uint32_t)r->fade << 25 |
+                 (uint32_t)r->fmask << 28);
 }
 
 mm2_row mm2_row_unpack(int v)
@@ -44,8 +45,10 @@ mm2_row mm2_row_unpack(int v)
     r.dst = (uint8_t)(u >> 14 & 7);
     r.dnum = (uint8_t)(u >> 17 & 255);
     r.fade = (uint8_t)(u >> 25 & 7);
-    if (r.ch > MM2_CH_ALL || r.stype > MM2_S_MAX || r.dst > MM2_D_MAX || r.fade > 4) {
-        r.ch = r.stype = r.snum = r.dnum = r.fade = 0; r.dst = MM2_D_OFF;
+    r.fmask = (uint8_t)(u >> 28 & 7);
+    if (r.ch > MM2_CH_ALL || r.stype > MM2_S_MAX || r.dst > MM2_D_MAX || r.fade > 4 ||
+        r.fmask > MM2_FM_MAX) {
+        r.ch = r.stype = r.snum = r.dnum = r.fade = r.fmask = 0; r.dst = MM2_D_OFF;
     }
     return r;
 }
@@ -99,14 +102,14 @@ static void mm2_run(int i)
         if (mm2_act_tape && r->dnum >= 1 && r->dnum <= 4) mm2_act_tape(r->dnum);
         return;
     case MM2_D_MUTE:
-        if (mm2_act_mute && r->dnum >= 1 && r->dnum <= 4) mm2_act_mute(r->dnum, r->fade);
+        if (mm2_act_mute && r->dnum >= 1 && r->dnum <= 4) mm2_act_mute(r->dnum, r->fade, r->fmask);
         return;
     case MM2_D_MRK: {
         if (!mm2_env_query || !mm2_act_marker) return;
         mm2_env_query(&e);
         if (!e.tape_mode || e.punch || (e.raw_state != 3 && e.raw_state != 10)) return;
         if (r->dnum > MM2_MRK_MAX || r->dnum > e.markers) return;   /* plage + marqueurs posés */
-        mm2_act_marker(r->dnum, r->fade);
+        mm2_act_marker(r->dnum, r->fade, r->fmask);
         return;
     }
     case MM2_D_MRP:
@@ -115,7 +118,7 @@ static void mm2_run(int i)
         mm2_env_query(&e);
         if (!e.tape_mode || e.punch || (e.raw_state != 3 && e.raw_state != 10) || !e.markers) return;
         if (r->dst == MM2_D_MRP ? mm2_act_mnext : mm2_act_mprev)
-            (r->dst == MM2_D_MRP ? mm2_act_mnext : mm2_act_mprev)(r->fade);
+            (r->dst == MM2_D_MRP ? mm2_act_mnext : mm2_act_mprev)(r->fade, r->fmask);
         return;
     }
     default:

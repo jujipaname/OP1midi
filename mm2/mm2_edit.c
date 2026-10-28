@@ -129,8 +129,13 @@ void mm2_edit_turn(int knob, int delta, int shift)
         while (st < 0) { pos = pos <= 0 ? 50 : pos - 1; st++; }
         flat_set(r, pos);
         if (!r->ch) r->ch = MM2_CH_ALL;                            /* ligne nouvellement assignée */
-    } else if (knob == 3) {                                            /* rouge: fade de la ligne */
-        while (st > 0) { r->fade = r->fade >= 4 ? 0 : (uint8_t)(r->fade + 1); st--; }
-        while (st < 0) { r->fade = r->fade ? (uint8_t)(r->fade - 1) : 4; st++; }
+    } else if (knob == 3) {                                            /* rouge: fade / Shift: pistes */
+        if (shift) {
+            while (st > 0) { r->fmask = r->fmask >= MM2_FM_MAX ? MM2_FM_ALL : (uint8_t)(r->fmask + 1); st--; }
+            while (st < 0) { r->fmask = r->fmask ? (uint8_t)(r->fmask - 1) : MM2_FM_MAX; st++; }
+        } else {
+            while (st > 0) { r->fade = r->fade >= 4 ? 0 : (uint8_t)(r->fade + 1); st--; }
+            while (st < 0) { r->fade = r->fade ? (uint8_t)(r->fade - 1) : 4; st++; }
+        }
     }
 }

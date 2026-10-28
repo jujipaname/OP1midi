@@ -36,10 +36,11 @@ static int n_snd, n_tape, n_mute, n_marker, n_mnext, n_mprev;
 static int last_snd, last_tape, last_mute, last_mlocal, last_fade;
 static void act_snd(int k) { n_snd++; last_snd = k; }
 static void act_tape(int t) { n_tape++; last_tape = t; }
-static void act_mute(int t, int f) { n_mute++; last_mute = t; last_fade = f; }
-static void act_marker(int local, int f) { n_marker++; last_mlocal = local; last_fade = f; }
-static void act_mnext(int f) { n_mnext++; last_fade = f; }
-static void act_mprev(int f) { n_mprev++; last_fade = f; }
+static int last_fmask;
+static void act_mute(int t, int f, int m) { n_mute++; last_mute = t; last_fade = f; last_fmask = m; }
+static void act_marker(int local, int f, int m) { n_marker++; last_mlocal = local; last_fade = f; last_fmask = m; }
+static void act_mnext(int f, int m) { n_mnext++; last_fade = f; last_fmask = m; }
+static void act_mprev(int f, int m) { n_mprev++; last_fade = f; last_fmask = m; }
 static mm2_env ENV = { 1, 3, 0, 5 };       /* mode tape, arrêt (3), pas de punch, 5 marqueurs */
 static void env_query(mm2_env *e) { *e = ENV; }
 
@@ -47,7 +48,7 @@ static void reset(void)
 {
     st_clear();
     n_snd = n_tape = n_mute = n_marker = n_mnext = n_mprev = 0;
-    last_snd = last_tape = last_mute = last_mlocal = last_fade = -99;
+    last_snd = last_tape = last_mute = last_mlocal = last_fade = last_fmask = -99;
     mm2_setting_get = fake_get; mm2_setting_put = fake_put;
     mm2_act_snd = act_snd; mm2_act_tape = act_tape; mm2_act_mute = act_mute;
     mm2_act_marker = act_marker; mm2_act_mnext = act_mnext; mm2_act_mprev = act_mprev;
@@ -60,7 +61,7 @@ static void reset(void)
 int main(void)
 {
     /* ---- codec v5 (ch + fade par ligne) ---- */
-    mm2_row r = { 3, MM2_S_CC, 80, MM2_D_MRK, 45, 2 };
+    mm2_row r = { 3, MM2_S_CC, 80, MM2_D_MRK, 45, 2, MM2_FM_12 };
     int p = mm2_row_pack(&r);
     mm2_row q = mm2_row_unpack(p);
     assert(q.ch == 3 && q.stype == MM2_S_CC && q.snum == 80 && q.dst == MM2_D_MRK &&
@@ -212,7 +213,8 @@ int main(void)
     for (int i = 0; i < MM2_ROWS; i++) {
         const mm2_row *w = mm2_row_get(i);
         assert(w->ch == (uint8_t)(i % 17) && w->stype == (uint8_t)(i % 3) && w->snum == (uint8_t)(i * 8) &&
-               w->dst == (uint8_t)(i % 7) && w->dnum == (uint8_t)(i * 3 + 1) && w->fade == (uint8_t)(i % 5));
+               w->dst == (uint8_t)(i % 7) && w->dnum == (uint8_t)(i * 3 + 1) && w->fade == (uint8_t)(i % 5) &&
+               w->fmask == (uint8_t)(i % 7));
     }
     fake_put("mmv", 3);                                    /* ancien format: remise à zéro au load */
     mm2_load();
@@ -244,6 +246,24 @@ int main(void)
     mm2_edit_turn(3,4*MM2_DETENT,false); A2(mm2_row_get(0)->fade==0,"rouge +4: fade wrap -> 0");
     mm2_edit_turn(3,-1*MM2_DETENT,false); A2(mm2_row_get(0)->fade==4,"rouge -1: fade 0->32s");
     mm2_edit_turn(3,1*MM2_DETENT,false); A2(mm2_row_get(0)->fade==0,"retour OFF");
+    /* Shift + rouge: masque de pistes (ALL,1,2,3,4,1+2,3+4) */
+    A2(mm2_row_get(0)->fmask==MM2_FM_ALL,"mask par défaut ALL");
+    mm2_edit_turn(3,1*MM2_DETENT,true); A2(mm2_row_get(0)->fmask==MM2_FM_1,"mask ALL->1");
+    mm2_edit_turn(3,1*MM2_DETENT,true); A2(mm2_row_get(0)->fmask==MM2_FM_2,"mask 1->2");
+    mm2_edit_turn(3,1*MM2_DETENT,true); A2(mm2_row_get(0)->fmask==MM2_FM_3,"mask 2->3");
+    mm2_edit_turn(3,1*MM2_DETENT,true); A2(mm2_row_get(0)->fmask==MM2_FM_4,"mask 3->4");
+    mm2_edit_turn(3,1*MM2_DETENT,true); A2(mm2_row_get(0)->fmask==MM2_FM_12,"mask 4->1+2");
+    mm2_edit_turn(3,1*MM2_DETENT,true); A2(mm2_row_get(0)->fmask==MM2_FM_34,"mask 1+2->3+4");
+    mm2_edit_turn(3,1*MM2_DETENT,true); A2(mm2_row_get(0)->fmask==MM2_FM_ALL,"mask 3+4->ALL (wrap)");
+    mm2_edit_turn(3,-1*MM2_DETENT,true); A2(mm2_row_get(0)->fmask==MM2_FM_34,"mask ALL-1->3+4");
+    mm2_edit_turn(3,1*MM2_DETENT,true); A2(mm2_row_get(0)->fmask==MM2_FM_ALL,"retour ALL");
+    /* les hooks reçoivent le mask */
+    reset();
+    mm2_row_edit(0)->stype = MM2_S_CC; mm2_row_edit(0)->snum = 90; mm2_row_edit(0)->dst = MM2_D_MUTE;
+    mm2_row_edit(0)->dnum = 2; mm2_row_edit(0)->fade = 3; mm2_row_edit(0)->fmask = MM2_FM_12;
+    assert(mm2_cc(0, 90, 127) && n_mute == 1 && last_mute == 2 && last_fade == 3 && last_fmask == MM2_FM_12);
+    mm2_row_edit(0)->dst = MM2_D_MRP; mm2_row_edit(0)->fmask = MM2_FM_34;
+    assert(mm2_cc(0, 90, 0) && mm2_cc(0, 90, 127) && n_mnext == 1 && last_fmask == MM2_FM_34);
     mm2_edit_turn(1,1*MM2_DETENT,true); A2(mm2_row_get(0)->ch==1,"Shift+vert: canal ALL->1");
     mm2_edit_turn(1,16*MM2_DETENT,true); A2(mm2_row_get(0)->ch==MM2_CH_ALL,"canal: 1->...->ALL (16 crans)");
     mm2_edit_turn(1,1*MM2_DETENT,true); A2(mm2_row_get(0)->ch==1,"canal: ALL->1 (wrap)");
@@ -257,7 +277,7 @@ int main(void)
     mm2_edit_learn_feed_key(7); A2(!mm2_edit_learning()&&mm2_row_get(0)->dnum==7,"learn touche: slot 7");
     mm2_edit_key(0x3D,1,true);
     A2(mm2_row_get(0)->dst==MM2_D_OFF&&mm2_row_get(0)->snum==0&&mm2_row_get(0)->stype==0&&
-       mm2_row_get(0)->dnum==0&&mm2_row_get(0)->ch==0&&mm2_row_get(0)->fade==0,
+       mm2_row_get(0)->dnum==0&&mm2_row_get(0)->ch==0&&mm2_row_get(0)->fade==0&&mm2_row_get(0)->fmask==0,
        "Shift+clic blanc: ligne supprimée (tout à zéro)");
     mm2_edit_key(0x3D,1,false);                            /* release: avalée */
     A2(mm2_edit_key(0x3E,1,false)==0&&mm2_edit_view(),"rouge clic sans shift: 0 (la glue avale en modal)");

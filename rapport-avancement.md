@@ -323,6 +323,22 @@ delete déplacé sur blanc) ; simulateur : **46 self-tests verts** + smoke rendu
 
 Reste : choix de police (propositions faites), test matériel, README utilisateur.
 
+## 15. v6.1 — masque de pistes du fade + fix de build (28 octobre 2026)
+
+- **Shift + rotation rouge = pistes du fade** (par ligne): ALL → 1 → 2 → 3 → 4 → 1+2 → 3+4 →
+  ALL (wrap; `MM2_FM_*`, stocké dans la ligne — les anciennes lignes décoderont ALL). Le moteur
+  de fade ne ramp que les pistes du masque (capture/rampe/restauration limitées au masque).
+- **MUTE avec fade**: en lecture, un trigger MUTE armé avec fade > 0 fait maintenant
+  FADE OUT → toggle au silence → FADE IN (au lieu du toggle instantané); hors lecture ou
+  fade OFF: toggle immédiat (inchangé).
+- **Fix de build important**: `build-knl.sh` copiait les sources mm2 depuis la COPIE du plugin
+  (périmée) — le « knl v6 » publié était en réalité un build v5 (d'où les fonctions non
+  décalées vues par l'utilisateur). Le script copie désormais la source canonique `mm2/`;
+  le knl v6.1 embarque le vrai v6 + le masque. **À réinstaller via le Workshop.**
+- **`op1midi.knl` v6.1** : 16 112 octets, 17 imports, 0 warning. `mm2_test` (masque: cycle
+  Shift+rouge, hooks recevant le mask, roundtrip) → **vert**; simulateur: **57 self-tests**.
+
+
 
 ## 13. v5.1 — affichages (28 octobre 2026)
 

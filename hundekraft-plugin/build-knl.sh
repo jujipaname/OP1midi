@@ -12,7 +12,9 @@ command -v docker >/dev/null || { echo "docker requis"; exit 1; }
 
 rm -rf "$DST"
 mkdir -p "$DST" "$KENNEL/build"
-cp "$HERE/op1midi/plugin.json" "$HERE/op1midi/mm2.h" "$HERE/op1midi/"*.c "$DST/"
+# sources canoniques: mm2/ (noyau) + hundekraft-plugin/op1midi/ (glue)
+cp "$HERE/../mm2/mm2.h" "$HERE/../mm2/mm2_core.c" "$HERE/../mm2/mm2_edit.c" "$DST/"
+cp "$HERE/op1midi/plugin.json" "$HERE/op1midi/op1midi.c" "$DST/"
 
 docker run --rm -u "$(id -u):$(id -g)" -v "$KENNEL":/work -w /work bfin-elf-toolchain-13 \
     python3 tools/kennel/pack.py synth_sdk/plugins/op1midi -o build/op1midi.knl

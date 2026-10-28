@@ -51,6 +51,12 @@ INSTALL
   managed by the workshop. Save a disk-mode backup first (see install-recuperation.md in the repository).
 
 CHANGES
+- v6.1 (2026-10-28): Shift + red turn selects WHICH TRACKS the fade affects: ALL, 1, 2, 3, 4,
+  1+2, 3+4 (per row, MM2_FM_*; setting packed in the row, 0 = ALL). The fade engine only ramps
+  the masked tracks; a MUTE action with a fade now ramps down, toggles at silence and ramps back
+  (instead of an instant toggle) when playing. The fade toast shows the track selection.
+  Build script fix: the packer now always copies the CANONICAL mm2/ sources (a stale plugin
+  copy had shipped a v5 build labelled v6).
 - v6 (2026-10-28): control map shifted for encoder/column colour continuity (blue, green, white,
   red left to right). Blue: turn = cursor over the 16 slots (page follows). Green: click cycles
   the source type; Shift + click toggles MIDI learn; turn = source number; Shift + turn = the

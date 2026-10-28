@@ -152,7 +152,7 @@ const D_MAX=6, MRK_MAX=32, S_MAX=2;
 const DST_NAMES=["--","SND","TAPE","MUT","MRK","M+","M-"];
 const ST_NAMES=["NOTE","CC","PC"];
 const FADE_NAMES=["OFF","1S","2S","8S","32S"], FADE_SECS=[0,1,2,8,32];
-let rows = Array.from({length:16},()=>({ch:0,stype:0,snum:0,dst:0,dnum:0,fade:0}));
+let rows = Array.from({length:16},()=>({ch:0,stype:0,snum:0,dst:0,dnum:0,fade:0,fmask:0}));
 let cur=0, page=0, open=false, learn=false;
 let mmen=1;
 let acc=[0,0,0,0];
@@ -163,7 +163,7 @@ function save(){ if(!HASDOM) return; try{ localStorage.setItem('op1midi-sim',
   JSON.stringify({rows,mmen})); }catch(e){} }
 function load(){ if(!HASDOM) return; try{ const s=JSON.parse(localStorage.getItem('op1midi-sim'));
   if(s&&s.rows){ rows=s.rows.map(r=>({ch:r.ch||0,stype:r.stype||0,snum:r.snum||0,dst:r.dst||0,
-    dnum:r.dnum||0,fade:r.fade||0})); mmen=s.mmen; } }catch(e){} }
+    dnum:r.dnum||0,fade:r.fade||0,fmask:r.fmask||0})); mmen=s.mmen; } }catch(e){} }
 
 function dnumRange(d){ return d>=1&&d<=3?[1,d===1?8:4]:d===4?[1,MRK_MAX]:[0,0]; }
 function dstTextOf(w){ const [lo,hi]=dnumRange(w.dst);
@@ -235,9 +235,13 @@ function turn(knob, delta, sh){
     flatSet(r,pos);
     if(!r.ch) r.ch=17;                                        /* ligne nouvellement assignée */
   }
-  else if(knob===3){ const f0=r.fade; while(st>0){ r.fade=r.fade>=4?0:r.fade+1; st--; }
-    while(st<0){ r.fade=r.fade?r.fade-1:4; st++; }
-    if(r.fade!==f0) log("FADE ligne "+(cur+1)+": "+FADE_NAMES[r.fade],"act"); }
+  else if(knob===3){ if(sh){ const FM=["ALL","1","2","3","4","1+2","3+4"];
+      while(st>0){ r.fmask=r.fmask>=6?0:r.fmask+1; st--; }
+      while(st<0){ r.fmask=r.fmask?r.fmask-1:6; st++; }
+      log("FADE PISTES ligne "+(cur+1)+": "+FM[r.fmask],"act"); }
+    else { const f0=r.fade; while(st>0){ r.fade=r.fade>=4?0:r.fade+1; st--; }
+      while(st<0){ r.fade=r.fade?r.fade-1:4; st++; }
+      if(r.fade!==f0) log("FADE ligne "+(cur+1)+": "+FADE_NAMES[r.fade],"act"); } }
   render(); save();
 }
 /* ---- learn ---- */
@@ -287,21 +291,32 @@ function run(i){ const r=rows[i], e=envQuery();
         if(e.raw===5||e.raw===7){ log("TAPE "+r.dnum+": refusé par le core (rec/disk)","ign"); return; }
         if(e.raw===10) log("TAPE "+r.dnum+": le core arrête la lecture puis switch","act");
         else log("SWITCH TAPE "+r.dnum,"act"); } return;
-    case D_MUTE: if(r.dnum>=1&&r.dnum<=4){ bars.mute[r.dnum-1]^=1;
-        log("MUTE piste "+r.dnum+": toggle -> "+(bars.mute[r.dnum-1]?"muet":"audible"),"act"); drawBars(); } return;
+    case D_MUTE: if(r.dnum>=1&&r.dnum<=4){
+        const fm=FM_TRACKS[r.fmask||0];
+        if(e.raw===10&&r.fade>0&&!fadeAnim.st){
+          startFadeAnim(r.fade,fm);
+          log("MUTE piste "+r.dnum+" AVEC FADE "+FADE_NAMES[r.fade]+" (pistes "+fm+") -> toggle au silence","fade");
+          fadeAnim.onSilence=()=>{ bars.mute[r.dnum-1]^=1;
+            log("silence: MUTE piste "+r.dnum+" togglé","fade"); };
+        } else { bars.mute[r.dnum-1]^=1;
+          log("MUTE piste "+r.dnum+": toggle -> "+(bars.mute[r.dnum-1]?"muet":"audible"),"act"); }
+        drawBars(); } return;
     case D_MRK: if(!e.tape_mode||e.punch||(e.raw!==3&&e.raw!==10)){ log("MRK "+r.dnum+": ignoré (garde)","ign"); return; }
       if(r.dnum>MRK_MAX||r.dnum>e.markers){ log("MRK "+r.dnum+": ignoré (plage/marqueurs posés)","ign"); return; }
-      jump(e,undefined,r.dnum,r.fade); return;
+      jump(e,undefined,r.dnum,r.fade,FM_TRACKS[r.fmask||0]); return;
     case D_MRP: case D_MRM: if(!e.tape_mode||e.punch||(e.raw!==3&&e.raw!==10)||!e.markers){
-        log("MRK"+(r.dst===D_MRP?"+":"-")+": ignoré (garde)","ign"); return; } jump(e,r.dst===D_MRP?1:-1,r.fade); return;
+        log("MRK"+(r.dst===D_MRP?"+":"-")+": ignoré (garde)","ign"); return; }
+      jump(e,r.dst===D_MRP?1:-1,r.fade,FM_TRACKS[r.fmask||0]); return;
   }
 }
-function jump(e,dir,target,fade){                       /* miroir du moteur de fade (glue) */
+const FM_TRACKS=[ [0,1,2,3], [0], [1], [2], [3], [0,1], [2,3] ];   /* pistes par masque */
+const FM_NAMES=["ALL","1","2","3","4","1+2","3+4"];
+function jump(e,dir,target,fade,tracks){                       /* miroir du moteur de fade (glue) */
   const playing=e.raw===10, f=FADE_SECS[fade?fade:0];
   const what=dir===undefined?("marker "+target):"prochain/précédent marqueur (au curseur)";
   if(playing&&f>0){
     if(bars.st){ log("saut ignoré: fade déjà en cours","ign"); return; }
-    startFadeAnim(f);
+    startFadeAnim(f,tr);
     log("FADE OUT "+f+"s -> saut ("+what+") -> FADE IN "+f+"s","fade");
   } else {
     log("SAUT immédiat: "+what+" + PLAY","act");
@@ -327,17 +342,20 @@ function dispatch(type,num,ch,val){
 }
 
 /* ---- animation fade (4 barres, navigateur uniquement) ---- */
-const bars={ vol:[80,60,90,70], mute:[0,0,0,0], disp:[80,60,90,70], st:0, t:0, dur:0 };
-function startFadeAnim(secs){ bars.st=1; bars.t=0; bars.dur=secs; bars.from=[...bars.vol]; }
+const bars={ vol:[80,60,90,70], mute:[0,0,0,0], disp:[80,60,90,70], st:0, t:0, dur:0, tracks:[0,1,2,3] };
+function startFadeAnim(secs,tr){ bars.st=1; bars.t=0; bars.dur=secs;
+  bars.tracks=tr||[0,1,2,3]; bars.from=[...bars.vol]; }
 function fadeFrame(dt){ if(!HASDOM||!bars.st) return;
   const sp=document.getElementById('x10').checked?60:1;
   bars.t+=dt*sp;
   const p=Math.min(1,bars.t/bars.dur);
   for(let t=0;t<4;t++){ if(bars.mute[t]){ bars.disp[t]=0; continue; }
+    if(!bars.tracks.includes(t)){ bars.disp[t]=bars.vol[t]; continue; }   /* hors masque: intacte */
     bars.disp[t]=bars.st===1?bars.from[t]*(1-p):bars.from[t]*p; }
   if(bars.t>=bars.dur){
     if(bars.st===1){ bars.st=2; bars.t=0;
-      log("SAUT au silence: locate + PLAY","fade"); for(let t=0;t<4;t++) bars.vol[t]=bars.from[t];
+      log("SAUT au silence: locate + PLAY","fade");
+      for(let t=0;t<4;t++) if(bars.tracks.includes(t)) bars.vol[t]=bars.from[t];
     } else { bars.st=0; log("FADE terminé: volumes restaurés","fade"); }
   }
   drawBars(); }
@@ -443,7 +461,7 @@ document.getElementById('dmk').onchange=e=>{ dev.markers=+e.target.value; };
 document.getElementById('dmen').onchange=e=>{ mmen=e.target.checked?1:0; save();
   log("switch settings T3: MIDI MAP "+(mmen?"ON":"OFF"),"act"); render(); };
 document.getElementById('reset').onclick=()=>{ localStorage.removeItem('op1midi-sim');
-  rows=Array.from({length:16},()=>({ch:0,stype:0,snum:0,dst:0,dnum:0,fade:0})); mmen=1;
+  rows=Array.from({length:16},()=>({ch:0,stype:0,snum:0,dst:0,dnum:0,fade:0,fmask:0})); mmen=1;
   document.getElementById('dmen').checked=true; render(); log("config réinitialisée","act"); };
 document.getElementById('msend').onclick=()=>{ dispatch(document.getElementById('mtype').value,
   +document.getElementById('mnum').value, +document.getElementById('mch').value,
@@ -507,9 +525,21 @@ if(!HASDOM){
   input(61,1,false); A(open===true,"réouverture");
   A(input(4,1,false)===0&&!open,"sortie TAPE sans shift: passthrough");
   input(61,1,false); A(input(4,1,true)===1&&!open,"sortie TAPE avec shift: consommée");
+  /* Shift + rouge: masque de pistes (ALL,1,2,3,4,1+2,3+4) */
+  input(61,1,false); A(open===true,"réouverture (test mask)");
+  A(rows[cur].fmask===0,"mask par défaut ALL");
+  turn(3,1*1024,true); A(rows[cur].fmask===1,"mask ALL->1");
+  turn(3,1*1024,true); A(rows[cur].fmask===2,"mask 1->2");
+  turn(3,1*1024,true); A(rows[cur].fmask===3,"mask 2->3");
+  turn(3,1*1024,true); A(rows[cur].fmask===4,"mask 3->4");
+  turn(3,1*1024,true); A(rows[cur].fmask===5,"mask 4->1+2");
+  turn(3,1*1024,true); A(rows[cur].fmask===6,"mask 1+2->3+4");
+  turn(3,1*1024,true); A(rows[cur].fmask===0,"mask 3+4->ALL (wrap)");
+  turn(3,-1*1024,true); A(rows[cur].fmask===6,"mask ALL-1->3+4");
+  turn(3,1*1024,true); A(rows[cur].fmask===0,"retour ALL");
   /* dispatch v5 inchangé: canal par ligne */
   open=false; dev.raw=3; dev.punch=0;
-  rows[0]={ch:0,stype:1,snum:80,dst:D_TAPE,dnum:2,fade:0};
+  rows[0]={ch:0,stype:1,snum:80,dst:D_TAPE,dnum:2,fade:0,fmask:5};
   A(dispatch("CC",80,6,127)===true,"ch unset=ALL: canal 6 consommé");
   rows[0].ch=4; A(dispatch("CC",80,6,0)===false,"canal 6 ignoré (ligne ch 4)");
   A(dispatch("CC",80,4,0)===true&&dispatch("CC",80,4,127)===true,"canal 4: front déclenche (TAPE)");

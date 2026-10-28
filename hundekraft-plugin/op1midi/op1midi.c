@@ -44,6 +44,7 @@
 #define FEAT "op1midi"
 
 static void wire(void);
+static void mute_toggle(int track);              /* définie plus bas (drain l'utilise) */
 
 /* ---- ABI mm2 -> réglages kennel (espace de noms du plugin) ---- */
 static int mm_get(const char *k, int d) { return (int)op1_setting_get(FEAT, k, (int32_t)d); }
@@ -55,15 +56,16 @@ static volatile uint8_t sh_held;                 /* Shift tenu (mis à jour à c
 
 /* ---- file d'actions (producteur: timer midi_raw; consommateur: main loop) ---- */
 enum { K_SND = 1, K_TAPE, K_MUTE, K_MARKER, K_MNEXT, K_MPREV };
-typedef struct { uint8_t kind; int16_t a, b; } pend_t;
+typedef struct { uint8_t kind; int16_t a, b; uint8_t m; } pend_t;
 static pend_t pq[8];
 static volatile uint8_t pq_wr, pq_rd;
 
-static void pq_push(int kind, int a, int b)
+static void pq_push(int kind, int a, int b, int m)
 {
     uint8_t w = pq_wr, n = (uint8_t)((w + 1) & 7);
     if (n == pq_rd) return;
-    pq[w].kind = (uint8_t)kind; pq[w].a = (int16_t)a; pq[w].b = (int16_t)b; pq_wr = n;
+    pq[w].kind = (uint8_t)kind; pq[w].a = (int16_t)a; pq[w].b = (int16_t)b;
+    pq[w].m = (uint8_t)m; pq_wr = n;
 }
 
 static void env_query(mm2_env *e)
@@ -95,8 +97,8 @@ static void apply_takes(void)
 
 /* ---- saut de marker (main loop), avec ou sans fade ---- */
 #define TM_STEP 441                              /* 10 ms: le marqueur "sur" le curseur */
-enum { J_MARKER = 1, J_NEXT, J_PREV };           /* kind: cible fixe / résolue au silence */
-static uint8_t j_kind, j_pending;                /* saut armé (fade) */
+enum { J_MARKER = 1, J_NEXT, J_PREV, J_MUTE };   /* kind: cible fixe / résolue au silence / toggle */
+static uint8_t j_kind, j_track, j_pending;       /* saut armé (fade) / piste mute-fade */
 static int32_t j_pos;
 
 static int tape_live(void) { return op1_tape_current() + 1; }
@@ -133,6 +135,7 @@ static const uint8_t fade_secs[5] = { 0, 1, 2, 8, 32 };
 static volatile uint8_t fade_st;                 /* 0 idle, 1 out, 2 in */
 static volatile uint8_t fade_silence;            /* 1: volume à 0, le main loop doit sauter */
 static volatile uint8_t fade_secs_v;             /* secondes de fade de la ligne déclenchée */
+static volatile uint8_t fade_mask;               /* pistes du fade (MM2_FM_*) */
 static int16_t fade_orig[4], fade_lo[4];
 static uint8_t fade_has[4];
 static uint32_t fade_len, fade_blocks;
@@ -142,12 +145,21 @@ static uint32_t fade_len, fade_blocks;
 #define MIX_VOL(t)   ((volatile int16_t *)0xFF801928)[t]
 #define MIX_RANGE(t) ((const volatile int16_t *)0xFF8018CC)[(t) * 3]
 
+static uint8_t fade_mask_has(int m, int t)       /* la piste t (0..3) est-elle dans le masque? */
+{
+    if (m == MM2_FM_ALL) return 1;
+    if (m == MM2_FM_12) return t < 2;
+    if (m == MM2_FM_34) return t >= 2;
+    return t == m - 1;                           /* MM2_FM_1..4 */
+}
+
 static void fade_start(void)                     /* main loop: armé la descente */
 {
     for (int t = 0; t < 4; t++) {
+        /* fade_mask est déjà fixé par l'appelant */
         fade_orig[t] = MIX_VOL(t);
         fade_lo[t] = MIX_RANGE(t);
-        fade_has[t] = (uint8_t)(fade_orig[t] != fade_lo[t]);
+        fade_has[t] = (uint8_t)(fade_mask_has(fade_mask, t) && fade_orig[t] != fade_lo[t]);
     }
     fade_blocks = 0;
     fade_len = (uint32_t)fade_secs[fade_secs_v % 5] * FADE_BPS;
@@ -182,12 +194,19 @@ static void fade_tick(void)                      /* audio thread: 4 mots par blo
 /* ---- hooks mm2: mise en file seulement (timer context) ---- */
 static void snd_inject(int slot);
 
-static void act_snd(int key) { pq_push(K_SND, key, 0); }
-static void act_tape(int tape) { pq_push(K_TAPE, tape, 0); }
-static void act_mute(int track, int fade) { pq_push(K_MUTE, track, fade); }
-static void act_marker(int local, int fade) { pq_push(K_MARKER, local, fade); }
-static void act_mnext(int fade) { pq_push(K_MNEXT, fade, 0); }
-static void act_mprev(int fade) { pq_push(K_MPREV, fade, 0); }
+static void act_snd(int key) { pq_push(K_SND, key, 0, 0); }
+static void act_tape(int tape) { pq_push(K_TAPE, tape, 0, 0); }
+static void act_mute(int track, int fade, int fmask) { pq_push(K_MUTE, track, fade, fmask); }
+static void act_marker(int local, int fade, int fmask) { pq_push(K_MARKER, local, fade, fmask); }
+static void act_mnext(int fade, int fmask) { pq_push(K_MNEXT, fade, fmask, 0); }
+static void act_mprev(int fade, int fmask) { pq_push(K_MPREV, fade, fmask, 0); }
+
+static void mute_toggle(int track)               /* 1..4: octet mute R246 + màj DSP */
+{
+    volatile uint8_t *m = (volatile uint8_t *)0xFF8010A0;
+    m[track - 1] ^= 1;
+    ((void (*)(void))0x01967ED0)();              /* Core: mute words for the DSP */
+}
 
 static void start_fade_in(void)
 {
@@ -278,10 +297,13 @@ static void drain(void)                          /* main loop */
         mm2_env e;
         env_query(&e);
         if (j_pending && e.tape_mode && !e.punch && e.raw_state == 10) {
-            int32_t pos; int tape;
-            jump_resolve(&pos, &tape);
-            if (pos >= 0) { do_jump(pos); start_fade_in(); }
-            else fade_cancel();
+            if (j_kind == J_MUTE) { mute_toggle(j_track); start_fade_in(); }
+            else {
+                int32_t pos; int tape;
+                jump_resolve(&pos, &tape);
+                if (pos >= 0) { do_jump(pos); start_fade_in(); }
+                else fade_cancel();
+            }
         } else fade_cancel();                    /* état changé (STOP...): restaurer sans sauter */
         j_pending = 0;
     }
@@ -485,7 +507,7 @@ static void overlay(void *r, int32_t screen)
         if (hi > lo) { *e++ = ' '; put_num(e, w->dnum); }
         sf_text(r, X_DST, y, ES, b, EW, cdst);
         const uint8_t *cfade = cur_ ? c_black : c_red;
-        sf_text(r, X_CH, y, ES, fade_names[w->fade], EW, cfade); /* fade de la ligne (rouge) */
+        sf_text(r, X_CH, y, ES, fade_names[w->fade], EW, cfade);
     }
 }
 
