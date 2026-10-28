@@ -107,7 +107,8 @@ static void mm2_run(int i)
     case MM2_D_MRK: {
         if (!mm2_env_query || !mm2_act_marker) return;
         mm2_env_query(&e);
-        if (!e.tape_mode || e.punch || (e.raw_state != 3 && e.raw_state != 10)) return;
+        if (!e.tape_mode || e.punch) return;
+        if (e.raw_state != 0 && e.raw_state != 3 && e.raw_state != 10) return;   /* arrêt (0 ou 3) / lecture */
         if (r->dnum > MM2_MRK_MAX || r->dnum > e.markers) return;   /* plage + marqueurs posés */
         mm2_act_marker(r->dnum, r->fade, r->fmask);
         return;
@@ -116,7 +117,9 @@ static void mm2_run(int i)
     case MM2_D_MRM: {
         if (!mm2_env_query) return;
         mm2_env_query(&e);
-        if (!e.tape_mode || e.punch || (e.raw_state != 3 && e.raw_state != 10) || !e.markers) return;
+        if (!e.tape_mode || e.punch) return;
+        if (e.raw_state != 0 && e.raw_state != 3 && e.raw_state != 10) return;
+        if (!e.markers) return;
         if (r->dst == MM2_D_MRP ? mm2_act_mnext : mm2_act_mprev)
             (r->dst == MM2_D_MRP ? mm2_act_mnext : mm2_act_mprev)(r->fade, r->fmask);
         return;

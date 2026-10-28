@@ -323,13 +323,13 @@ function run(i){ const r=rows[i], e=envQuery();
         drawBars(); } return;
     case D_MRK: if(!e.tape_mode){ log("MRK "+r.dnum+": ignoré (mode "+dev.mode+" — il faut tape)","ign"); return; }
       if(e.punch){ log("MRK "+r.dnum+": ignoré (punch actif)","ign"); return; }
-      if(e.raw!==3&&e.raw!==10){ log("MRK "+r.dnum+": ignoré (tape "+(e.raw===5?"rec":e.raw===6?"armée":"état "+e.raw)+")","ign"); return; }
+      if(e.raw!==0&&e.raw!==3&&e.raw!==10){ log("MRK "+r.dnum+": ignoré (tape "+(e.raw===5?"rec":e.raw===6?"armée":"état "+e.raw)+")","ign"); return; }
       if(r.dnum>MRK_MAX){ log("MRK "+r.dnum+": ignoré (au-delà de 32)","ign"); return; }
       if(r.dnum>e.markers){ log("MRK "+r.dnum+": ignoré ("+e.markers+" marqueur(s) posé(s))","ign"); return; }
       jump(e,undefined,r.dnum,r.fade,FM_TRACKS[r.fmask||0]); return;
     case D_MRP: case D_MRM: if(!e.tape_mode){ log("MRK"+(r.dst===D_MRP?"+":"-")+": ignoré (mode "+dev.mode+")","ign"); return; }
       if(e.punch){ log("MRK"+(r.dst===D_MRP?"+":"-")+": ignoré (punch actif)","ign"); return; }
-      if(e.raw!==3&&e.raw!==10){ log("MRK"+(r.dst===D_MRP?"+":"-")+": ignoré (tape non arrêtée/lecture)","ign"); return; }
+      if(e.raw!==0&&e.raw!==3&&e.raw!==10){ log("MRK"+(r.dst===D_MRP?"+":"-")+": ignoré (tape non arrêtée/lecture)","ign"); return; }
       if(!e.markers){ log("MRK"+(r.dst===D_MRP?"+":"-")+": ignoré (aucun marqueur)","ign"); return; }
       jump(e,r.dst===D_MRP?1:-1,r.fade,FM_TRACKS[r.fmask||0]); return;
   }
@@ -562,6 +562,7 @@ if(!HASDOM){
   input(61,1,false); A(open===true,"réouverture");
   A(input(4,1,false)===0&&!open,"sortie TAPE sans shift: passthrough");
   input(61,1,false); A(input(4,1,true)===1&&!open,"sortie TAPE avec shift: consommée");
+  /* v6.3: l'état 0 est accepté comme arrêt (le R246 réel peut utiliser 0) */
   /* dispatch v5: canal par ligne + fade par ligne + masque */
   open=false; dev.mode='tape'; dev.raw=3; dev.punch=0;
   rows[0]={ch:0,stype:1,snum:80,dst:D_TAPE,dnum:2,fade:0,fmask:5};

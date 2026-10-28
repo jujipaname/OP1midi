@@ -346,6 +346,25 @@ Reste : choix de police (propositions faites), test matériel, README utilisateu
 
 Reste : test matériel (rendu de la police native, key learn), README utilisateur.
 
+## 17. v6.3 — fixes hardware (28 octobre 2026)
+
+Retour du test OP-1 v6.2 : MIDI MAP sur la 2ᵉ ligne (vert), Shift inopérant, seul le mute
+fonctionne, pas de fade.
+
+1. **Rangée settings** : notre BOOT_DONE livrait le switch AVANT celui de midiseq (ordre de
+   livraison des features ≠ hypothèse). Fix: enregistrement au **premier OP1_EV_SERVICE**
+   après le BOOT_DONE → après midiseq → **MIDI MAP blanc ligne 3**, MIDI SEQ vert ligne 2.
+2. **Garde d'état tape** : n'accepter que l'état 3 comme « arrêté » tuait tout (marqueurs,
+   fade) si le R246 réel utilise 0 — **0 et 3 acceptés** désormais (5/6/7 toujours refusés).
+   C'est l'explication la plus probable du « seul le mute fonctionne ».
+3. **Shift** : lecture directe de l'**octet Shift stock** (`0x01DD7F78`, l'adresse qu'utilise
+   le propre plugin markers du kennel) au lieu du champ `in->shift` livré — fiable sur
+   hardware pour toutes les actions Shift (canal, learn on/off, sorties, delete, masque).
+- **`op1midi.knl` v6.3** : 16 016 octets, 17 imports, 0 warning. mm2_test vert (état 0 ajouté).
+
+Reste : re-test hardware v6.3, README utilisateur.
+
+
 
 ## 15. v6.1 — masque de pistes du fade + fix de build (28 octobre 2026)
 

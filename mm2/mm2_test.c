@@ -96,24 +96,26 @@ int main(void)
     mm2_row_edit(0)->dst = MM2_D_MRK; mm2_row_edit(0)->stype = MM2_S_PC;
     mm2_row_edit(0)->snum = 7;
     mm2_row_edit(0)->dnum = 10;
-    ENV.raw_state = 5;                                     /* enregistrement: refusé */
-    assert(mm2_pc(0, 7) && n_marker == 0);
-    ENV.raw_state = 6;                                     /* armé (count-in): refusé */
-    assert(mm2_pc(0, 7) && n_marker == 0);
-    ENV.raw_state = 10;                                    /* lecture: autorisé (fade/saut) */
+    ENV.raw_state = 0;                                     /* arrêt variante 0: autorisé */
     assert(mm2_pc(0, 7) && n_marker == 1 && last_mlocal == 10);
+    ENV.raw_state = 5;                                     /* enregistrement: refusé */
+    assert(mm2_pc(0, 7) && n_marker == 1);
+    ENV.raw_state = 6;                                     /* armé (count-in): refusé */
+    assert(mm2_pc(0, 7) && n_marker == 1);
+    ENV.raw_state = 10;                                    /* lecture: autorisé (fade/saut) */
+    assert(mm2_pc(0, 7) && n_marker == 2 && last_mlocal == 10);
     ENV.raw_state = 3;
-    ENV.tape_mode = 0; assert(mm2_pc(0, 7) && n_marker == 1); ENV.tape_mode = 1;
-    ENV.punch = 1; assert(mm2_pc(0, 7) && n_marker == 1); ENV.punch = 0;
+    ENV.tape_mode = 0; assert(mm2_pc(0, 7) && n_marker == 2); ENV.tape_mode = 1;
+    ENV.punch = 1; assert(mm2_pc(0, 7) && n_marker == 2); ENV.punch = 0;
     mm2_row_edit(0)->dnum = 20;                            /* == ENV.markers: la borne passe */
-    assert(mm2_pc(0, 7) && n_marker == 2 && last_mlocal == 20);
+    assert(mm2_pc(0, 7) && n_marker == 3 && last_mlocal == 20);
     mm2_row_edit(0)->dnum = 33;                            /* au-delà de l'ensemble partagé: ignoré */
-    assert(mm2_pc(0, 7) && n_marker == 2);
+    assert(mm2_pc(0, 7) && n_marker == 3);
     ENV.markers = 40;                                      /* plus de 32 posés: la plage prime */
-    assert(mm2_pc(0, 7) && n_marker == 2);
+    assert(mm2_pc(0, 7) && n_marker == 3);
     ENV.markers = 1;
     mm2_row_edit(0)->dnum = 2;                             /* 2 > 1 marqueur posé: ignoré */
-    assert(mm2_pc(0, 7) && n_marker == 2);
+    assert(mm2_pc(0, 7) && n_marker == 3);
     ENV.markers = 5;
 
     /* ---- MRK+ / MRK- ---- */

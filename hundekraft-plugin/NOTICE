@@ -51,6 +51,14 @@ INSTALL
   managed by the workshop. Save a disk-mode backup first (see install-recuperation.md in the repository).
 
 CHANGES
+- v6.3 (2026-10-28): hardware fixes from the first on-device test. The "MIDI MAP" settings row
+  is registered on the FIRST main-loop service pass after boot (after midiseq's BOOT_DONE
+  registration) so MIDI SEQ keeps the green row and MIDI MAP takes the white one — the
+  BOOT_DONE registration raced with midiseq's. The tape-state guard now accepts BOTH 0 and 3
+  as "stopped" (the real R246 stop state; only 0 was accepted before, which left everything
+  but MUTE dead on hardware). The Shift state is now read from the STOCK shift byte
+  (0x01DD7F78 — the same address the kennel's own markers plugin uses) instead of relying on
+  the delivered event field.
 - v6.2 (2026-10-28): NATIVE R246 font for the editor overlay (firmware Text objects, built once
   on the graphics thread, drawn with the stock font — lowercase supported: "mrk 11", "2s", "ch 5",
   "all"). Learn split into two states: MIDI learn (Shift + green click arms, green click alone

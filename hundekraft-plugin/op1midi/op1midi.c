@@ -46,6 +46,7 @@
 static void wire(void);
 static void mute_toggle(int track);              /* définie plus bas (drain l'utilise) */
 static char *put_str(char *e, const char *s);    /* définie plus bas (overlay) */
+#define MM_SHIFT  (*(volatile uint8_t *)0x01DD7F78)   /* octet Shift stock R246 (markers.c) */
 
 /* ---- ABI mm2 -> réglages kennel (espace de noms du plugin) ---- */
 static int mm_get(const char *k, int d) { return (int)op1_setting_get(FEAT, k, (int32_t)d); }
@@ -100,6 +101,7 @@ static void apply_takes(void)
 #define TM_STEP 441                              /* 10 ms: le marqueur "sur" le curseur */
 enum { J_MARKER = 1, J_NEXT, J_PREV, J_MUTE };   /* kind: cible fixe / résolue au silence / toggle */
 static uint8_t j_kind, j_track, j_pending;       /* saut armé (fade) / piste mute-fade */
+static uint8_t sw_pending;                       /* enregistrement du switch au 1er SERVICE */
 static int32_t j_pos;
 
 static int tape_live(void) { return op1_tape_current() + 1; }
@@ -359,7 +361,7 @@ static uint64_t seen_down;
 static int input(const op1_input *in)
 {
     wire();
-    sh_held = in->shift;                         /* l'overlay lit l'état courant du Shift */
+    sh_held = MM_SHIFT;                          /* octet Shift stock (fiable sur hardware) */
     if (in->type == OP1_IN_KEY) {
         if (!mm2_edit_view()) {
             if (in->code == 0x3D && in->pressed && in->mode == 0x0C && !op1_text_entry_open()) {
@@ -380,14 +382,14 @@ static int input(const op1_input *in)
         if (mm2_edit_learn_state() == MM2_L_KEY && in->pressed)
             log_key_learn("touche enregistrée");      /* toutes les touches sont tracées */
         int was = mm2_edit_view();
-        int consumed = mm2_edit_key(in->code, in->pressed, in->shift);
+        int consumed = mm2_edit_key(in->code, in->pressed, MM_SHIFT);
         if (was) takes_dirty = 1;                                 /* fermeture ou suppression: re-appliquer */
         if (!consumed && was && mm2_edit_view()) return 1;        /* toujours ouvert: modal */
         return consumed;                                          /* 0: sortie, la touche agit */
     }
     if (mm2_edit_view()) {
         int f0 = mm2_row_get(mm2_edit_cursor())->fade;
-        mm2_edit_turn(in->code, in->delta, in->shift);
+        mm2_edit_turn(in->code, in->delta, MM_SHIFT);
         if (in->type == OP1_IN_KNOB && in->code == 2 && mm2_row_get(mm2_edit_cursor())->fade != f0) {
             static const char *const fn[] = { "FADE OFF", "FADE 1S", "FADE 2S", "FADE 8S", "FADE 32S" };
             op1_toast(fn[mm2_row_get(mm2_edit_cursor())->fade]);
@@ -571,6 +573,10 @@ static void event(int id, int32_t arg)
     } else if (id == OP1_EV_MODE) {
         cur_mode = (uint8_t)arg;
     } else if (id == OP1_EV_SERVICE) {
+        if (sw_pending) {                        /* après le BOOT_DONE de midiseq: 2e rangée = blanche */
+            sw_pending = 0;
+            op1_switch(FEAT, "MIDI MAP");
+        }
         drain();
     }
 }
