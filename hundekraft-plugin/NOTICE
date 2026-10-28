@@ -51,6 +51,13 @@ INSTALL
   managed by the workshop. Save a disk-mode backup first (see install-recuperation.md in the repository).
 
 CHANGES
+- v2 (2026-10-28): hardware-test fixes. Settings row registered at OP1_EV_BOOT_DONE (after the
+  built-ins) so MIDI SEQ keeps the green row and MIDI MAP takes the white one; the editor overlay
+  now draws a full-screen fade plus an opaque black panel with a white border before its text
+  (pattern of the kennel's randomiser plugin); new exits from the modal editor, all saving:
+  Help (Shift or not), the mode keys (help, metronome, synth, drum, tape, mixer, sequencer, mic,
+  COM), T1..T4 and transport REC/PLAY/STOP — without Shift the key then acts as usual, with Shift
+  it is consumed.
 - v1 (2026-10-27): first release. 16-row CC/PC mapping editor, marker jumps, play from marker,
   tape select, settings switch, modal overlay editor. Compiled with bfin-elf-gcc 13.3.0.
 

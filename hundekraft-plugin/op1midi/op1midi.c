@@ -1,11 +1,14 @@
 /* OP1midi — mapping MIDI generaliste (mm2) comme feature plugin kennel, cible Hundekraft 3.0.3.
  * Copyright (C) 2026 OP1midi. GPL-3.0-or-later with the OP-1 firmware permission (see LICENSE and NOTICE).
  *
- * Entree: Shift + Help (mode clock) -> T3 (settings) -> rangée "MIDI MAP" (op1_switch, vert/blanc/
- * rouge selon l'ordre d'enregistrement): tourner = ON/OFF global, appui blanc = ouvre l'éditeur.
- * Éditeur (overlay modal): bleu = canal, vert = numéro (appui = CC<->PC), blanc = action puis
- * édition de valeur (re-appui = valider), rouge = curseur, fleches = pages, Shift+Help = valider.
- * Ligne du curseur en rouge, les autres en blanc; valeur en cours d'édition en vert.
+ * Entree: Shift + Help (mode clock) -> T3 (settings) -> rangée "MIDI MAP" (op1_switch enregistré
+ * à OP1_EV_BOOT_DONE après les built-ins: 2e rangée = blanche): tourner = ON/OFF global, appui
+ * blanc = ouvre l'éditeur.
+ * Éditeur (overlay modal sur voile + panneau noir): bleu = canal, vert = numéro (appui = CC<->PC),
+ * blanc = action puis édition de valeur (re-appui = valider), rouge = curseur, fleches = pages.
+ * Sorties (sauvegarde systématique): Help (Shift ou non), touches de mode / T1..T4 / transport
+ * (la touche agit ensuite, sauf Shift tenu: consommée). Ligne du curseur en rouge, autres blancs;
+ * valeur en cours d'édition en vert.
  *
  * midi_raw (timer): CC B0 -> mm2_cc, program change C0 -> mm2_pc. Les actions sont mises en file
  * et exécutées sur la main loop (OP1_EV_SERVICE): saut de marqueur (tm_pos/tm_n partagés +
@@ -18,6 +21,10 @@
 #include "../../op1_feature_seq.h"
 #include "mm2.h"
 #include "../../screens/stroke_font.h"
+
+#ifndef OP1_HOST
+#pragma GCC optimize ("Os", "no-tree-loop-distribute-patterns")
+#endif
 
 #define FEAT "op1midi"
 
@@ -152,17 +159,19 @@ static int input(const op1_input *in)
         else if (!(seen_down >> (in->code & 63) & 1)) return 0;   /* release tenue avant l'ouverture */
         seen_down &= ~((uint64_t)1 << (in->code & 63));
         int was = mm2_edit_view();
-        mm2_edit_key(in->code, in->pressed, in->shift);
+        int consumed = mm2_edit_key(in->code, in->pressed, in->shift);
         if (was && !mm2_edit_view()) takes_dirty = 1;             /* validé: re-appliquer les takes */
-        return 1;
+        if (!consumed && was && mm2_edit_view()) return 1;        /* toujours ouvert: modal */
+        return consumed;                                          /* 0: sortie, la touche agit */
     }
     if (mm2_edit_view()) { mm2_edit_turn(in->code, in->delta); return 1; }
     return 0;
 }
 
-/* ---- rendu de l'éditeur (overlay, Gfx): curseur rouge, autres blancs, édition en vert ---- */
+/* ---- rendu de l'éditeur (overlay, Gfx): voile + panneau noir opaque (motif du plugin
+ * randomiser du kennel), curseur rouge, autres blancs, édition en vert ---- */
 static const uint8_t c_red[4] = { 0xFF, 0x4E, 0x3F, 0xFF }, c_white[4] = { 0xFF, 0xFF, 0xFF, 0xFF },
-                     c_green[4] = { 0x00, 0xED, 0x95, 0xFF };
+                     c_green[4] = { 0x00, 0xED, 0x95, 0xFF }, c_black[4] = { 0, 0, 0, 0xFF };
 #define ES   OP1_Q10(5) / 2
 #define EW   0x600
 #define X_CAN OP1_Q10(8)
@@ -172,6 +181,37 @@ static const uint8_t c_red[4] = { 0xFF, 0x4E, 0x3F, 0xFF }, c_white[4] = { 0xFF,
 #define Y_T  OP1_Q10(10)
 #define Y0   OP1_Q10(40)
 #define DY   OP1_Q10(26)
+#define PN_X0 6                                               /* panneau, px */
+#define PN_X1 314
+#define PN_Y0 4
+#define PN_Y1 156
+
+/* Raster +0 pixels (RGB565), +4 largeur, +8 stride (octets), +0x0C hauteur (motif randomiser) */
+typedef struct { uint16_t *px; uint32_t w, stride, h; } mm_raster;
+static void mm_fade(void *r)
+{
+    const mm_raster *ra = r;
+    uint8_t *row = (uint8_t *)ra->px;
+    for (uint32_t y = 0; y < ra->h; y++, row += ra->stride & ~1u)
+        for (uint32_t x = 0; x < ra->w; x++) ((uint16_t *)row)[x] = (uint16_t)(((uint16_t *)row)[x] >> 1 & 0x7BEF);
+}
+
+static void mm_hline(void *r, int x0, int x1, int y, int w_px, const uint8_t *c)
+{
+    op1_pt a = { OP1_Q10(x0), OP1_Q10(y) }, b = { OP1_Q10(x1), OP1_Q10(y) };
+    op1_raster_line(r, &a, &b, OP1_Q10(w_px), c);
+}
+
+static void mm_panel(void *r)                                  /* fond noir opaque + bordure */
+{
+    for (int y = PN_Y0 + 1; y < PN_Y1; y += 2) mm_hline(r, PN_X0, PN_X1, y, 2, c_black);
+    mm_hline(r, PN_X0 + 1, PN_X1 - 1, PN_Y0, 2, c_white);
+    mm_hline(r, PN_X0 + 1, PN_X1 - 1, PN_Y1, 2, c_white);
+    op1_pt a = { OP1_Q10(PN_X0), OP1_Q10(PN_Y0) }, b = { OP1_Q10(PN_X0), OP1_Q10(PN_Y1) };
+    op1_raster_line(r, &a, &b, OP1_Q10(2), c_white);
+    op1_pt c = { OP1_Q10(PN_X1), OP1_Q10(PN_Y0) }, d = { OP1_Q10(PN_X1), OP1_Q10(PN_Y1) };
+    op1_raster_line(r, &c, &d, OP1_Q10(2), c_white);
+}
 
 static char *put_str(char *e, const char *s) { while (*s) *e++ = *s++; *e = 0; return e; }
 static char *put_num(char *e, int v)                       /* 0..255 */
@@ -189,6 +229,8 @@ static void overlay(void *r, int32_t screen)
 {
     (void)screen;
     if (!mm2_edit_view()) return;
+    mm_fade(r);
+    mm_panel(r);
     int page = mm2_edit_page(), cur = mm2_edit_cursor(), ed = mm2_edit_editing();
     sf_text(r, X_CAN, Y_T, ES, "MIDI MAP", EW, c_white);
     char pb[10];
@@ -232,9 +274,10 @@ static void wire(void)
 static void event(int id, int32_t arg)
 {
     wire();
-    if (id == OP1_EV_REGISTER) {
-        op1_switch(FEAT, "MIDI MAP");            /* rangée settings (clock T3) */
-    } else if (id == OP1_EV_BOOT_DONE) {
+    if (id == OP1_EV_BOOT_DONE) {
+        /* après les built-ins (midiseq enregistre le sien ici aussi, kn_features.c BUILTIN avant
+         * les fichiers): nous sommes le 2e switch = rangée blanche, MIDI SEQ reste vert */
+        op1_switch(FEAT, "MIDI MAP");
         mm2_load();
         takes_dirty = 1;
     } else if (id == OP1_EV_MODE) {

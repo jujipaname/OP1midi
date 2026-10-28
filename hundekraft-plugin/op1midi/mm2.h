@@ -51,7 +51,8 @@ int  mm2_pc(int ch, int num);
 void mm2_edit_open(void);
 void mm2_edit_close(int save);              /* save: valider (mm2_save) avant fermeture */
 int  mm2_edit_view(void);
-int  mm2_edit_key(int code, int pressed, int shift);   /* 1 = consommé */
+int  mm2_edit_key(int code, int pressed, int shift);   /* 1 = consommé; 0 = touches de sortie sans
+                                                        * Shift (ferme + sauvegarde, la touche agit) */
 void mm2_edit_turn(int knob, int delta);    /* 0 bleu, 1 vert, 2 blanc, 3 rouge */
 int  mm2_edit_cursor(void);                 /* 0..15 */
 int  mm2_edit_page(void);                   /* 0..3 */

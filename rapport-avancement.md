@@ -154,3 +154,34 @@ Audit point par point du plugin `op1midi.knl` contre `PLUGIN_GUIDE.md` du bundle
 
 Limites documentées : INSTRUMENT SELECT sans service core (toast) ; test matériel restant (aucun
 émulateur dans le bundle ; imports vérifiés statiquement).
+
+## 8. Test matériel v1 + fixes v2 (28 octobre 2026)
+
+**Résultats du test sur l'OP-1 (Hundekraft 3.0.3)** :
+- ✅ **Le plugin charge et tourne sans crash** — l'appareil reste stable.
+- ✅ Le GUI de l'éditeur fonctionne comme convenu (navigation, édition).
+- ❌ Bug 1 : dans la page settings (Shift+Help, T3), « MIDI MAP » prenait la place de « MIDI SEQ »
+  (rangée verte ligne 2), MIDI SEQ repoussé en ligne 3.
+- ❌ Bug 2 : l'éditeur s'affichait en surimpression sur la page restée visible → illisible.
+- ❌ Bug 3 : impossible de quitter l'éditeur (Shift+Help ou touches de mode avalées par le mode
+  modal).
+
+**Analyse source + fixes (v2, packés)** :
+- Bug 1 : `midiseq` enregistre son switch à `OP1_EV_BOOT_DONE` (midiseq.c:265) et les built-ins
+  s'enregistrent avant les fichiers plugins (`kn_features.c` BUILTIN). Notre `op1_switch` est donc
+  passé de `OP1_EV_REGISTER` à `OP1_EV_BOOT_DONE` → livraison après `midiseq` → **2ᵉ switch =
+  rangée blanche ligne 3**, MIDI SEQ reste vert ligne 2.
+- Bug 2 : l'overlay applique désormais le motif du plugin kennel `randomiser` (rn_draw.c) : voile
+  plein écran (RGB565 >> 1) + **panneau noir opaque** (lignes 2 px) + bordure blanche avant le
+  texte.
+- Bug 3 : `mm2_edit_key` ferme désormais l'éditeur (avec sauvegarde) sur Help (Shift ou non) et sur
+  les touches de mode / T1–T4 / transport — sans Shift la touche **agit ensuite normalement**
+  (passthrough, motif `op1_text_entry`), avec Shift elle est consommée ; la glue propage le retour
+  et n'avale plus aveuglément.
+
+**`op1midi.knl` v2** : 10 304 octets, .text 4676 / .rodata 2000 / .bss 212, 265 relocations,
+13 imports identiques à la v1, aucun warning packer (bfin-elf-gcc 13.3.0). `mm2_test` étendu
+(sorties Help seul / mode / T / transport, sauvegarde systématique, passthrough) → **vert**.
+
+Reste : re-test matériel de la v2 (rangée settings, lisibilité, sorties), README.md côté
+utilisateur, autres retours d'interface (à venir).

@@ -209,6 +209,39 @@ int main(void)
     mm2_row saved = mm2_row_unpack(packed);
     assert(saved.ch == 2 && saved.type == 0 && saved.num == 5 && saved.act == MM2_PLAY && saved.val == 4);
 
+    /* Help seul: ferme aussi (consommé) */
+    reset();
+    mm2_edit_open();
+    assert(mm2_edit_key(0x00, 1, 0) == 1 && !mm2_edit_view());
+
+    /* sorties par touche de mode / T / transport: ferme + sauvegarde; sans Shift -> passthrough */
+    reset();
+    mm2_edit_open();
+    mm2_row_edit(0)->act = MM2_TAPE;
+    mm2_row_edit(0)->val = 2;
+    assert(mm2_edit_key(0x04, 1, 0) == 0 && !mm2_edit_view());     /* tape: la touche agit */
+    char k2[8] = "mmr0";
+    mm2_row kept = mm2_row_unpack(fake_get(k2, -1));
+    assert(kept.act == MM2_TAPE && kept.val == 2);                 /* sauvegardé quand même */
+    reset();
+    mm2_edit_open();
+    assert(mm2_edit_key(0x04, 1, 1) == 1 && !mm2_edit_view());     /* Shift tenu: consommé */
+    reset();
+    mm2_edit_open();
+    assert(mm2_edit_key(0x08, 1, 0) == 0 && !mm2_edit_view());     /* T3 */
+    reset();
+    mm2_edit_open();
+    assert(mm2_edit_key(0x22, 1, 0) == 0 && !mm2_edit_view());     /* PLAY */
+    reset();
+    mm2_edit_open();
+    assert(mm2_edit_key(0x2D, 1, 0) == 0 && !mm2_edit_view());     /* COM */
+
+    /* touches non-mode pendant l'ouverture: 0 (l'intégration les avale, éditeur toujours ouvert) */
+    reset();
+    mm2_edit_open();
+    assert(mm2_edit_key(0x3E, 1, 0) == 0 && mm2_edit_view());
+    mm2_edit_close(0);
+
     /* éditeur fermé: les touches passent au stock */
     assert(!mm2_edit_key(0x25, 1, 0) && !mm2_edit_key(0x3C, 1, 0));
 
