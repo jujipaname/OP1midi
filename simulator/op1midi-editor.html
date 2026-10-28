@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>OP1midi — simulateur d'éditeur (miroir mm2 v3.1)</title>
+<style>
+  :root { --blue:#4D9EFF; --green:#00ED95; --white:#fff; --red:#FF4E3F; }
+  body { background:#101214; color:#cfd2d6; font-family:system-ui,sans-serif; margin:14px; }
+  h1 { font-size:18px; color:#fff; margin:0 0 2px; }
+  .note { font-size:12px; color:#8a8f96; margin-bottom:12px; }
+  #wrap { display:flex; gap:22px; flex-wrap:wrap; }
+  .col { display:flex; flex-direction:column; gap:10px; }
+  #scr { width:960px; height:480px; background:#000; border:1px solid #333;
+         image-rendering:pixelated; border-radius:6px; }
+  .knobs { display:flex; gap:26px; margin-top:10px; align-items:center; }
+  .kn { text-align:center; user-select:none; }
+  .kn canvas { cursor:grab; }
+  .kn .lbl { font-size:12px; margin-top:2px; }
+  .kn .hint { font-size:10px; color:#8a8f96; }
+  .keys { display:flex; flex-wrap:wrap; gap:5px; max-width:640px; margin-top:8px; }
+  button.k { background:#1c1f24; color:#cfd2d6; border:1px solid #3a3f46; border-radius:5px;
+             padding:5px 9px; font-size:12px; cursor:pointer; }
+  button.k:active { background:#2c313a; }
+  button.k.shift-on { background:#4a3a12; color:#ffd479; border-color:#a67c1a; }
+  .panel { background:#16181c; border:1px solid #2c3138; border-radius:8px; padding:10px 12px;
+           font-size:12px; min-width:330px; }
+  .panel h2 { font-size:13px; margin:0 0 8px; color:#fff; }
+  .panel label { display:inline-block; margin:2px 6px 2px 0; }
+  select, input[type=number] { background:#1c1f24; color:#cfd2d6; border:1px solid #3a3f46;
+                               border-radius:4px; padding:2px 4px; }
+  #log { height:210px; overflow-y:auto; font-family:ui-monospace,monospace; font-size:11px;
+         background:#0b0d10; border:1px solid #2c3138; border-radius:6px; padding:6px; }
+  #log .act { color:#7fd7ff; } #log .ign { color:#777; } #log .fade { color:#ffd479; }
+  .row { display:flex; gap:6px; align-items:center; margin:3px 0; }
+  canvas.bars { background:#000; border:1px solid #2c3138; border-radius:4px; }
+  .sw { display:flex; align-items:center; gap:8px; }
+</style>
+</head>
+<body>
+<h1>OP1midi — simulateur d'éditeur de mapping</h1>
+<div class="note">Miroir navigateur de <b>mm2_edit.c / mm2_core.c v3.1</b> (fonte, couleurs et
+machine à états identiques au plugin). Outil de test graphique/navigation — la vérité reste le
+matériel. Potards : molette = cran, glisser vertical = crans, clic simple = appui (push).
+Touche Shift physique ou bouton SHIFT. Pour ouvrir l'éditeur : mode <b>clock</b> puis
+<b>clic sur le potard blanc</b> (comme l'appui blanc depuis la page settings T3).</div>
+
+<div id="wrap">
+  <div class="col">
+    <canvas id="scr" width="320" height="160"></canvas>
+    <div class="knobs" id="knobs"></div>
+    <div class="keys" id="keys"></div>
+  </div>
+  <div class="col">
+    <div class="panel">
+      <h2>État de l'appareil (pour les gardes)</h2>
+      <div class="row"><label>Mode
+        <select id="dmode">
+          <option value="synth">synth</option><option value="drum">drum</option>
+          <option value="tape">tape</option><option value="mixer">mixer</option>
+          <option value="clock">clock</option>
+        </select></label>
+        <label>Tape
+          <select id="dstate">
+            <option value="3">arrêt</option><option value="6">armée</option>
+            <option value="10">lecture</option><option value="5">rec</option>
+          </select></label>
+        <label>Punch
+          <select id="dpunch"><option value="0">off</option><option value="1">armé</option>
+          <option value="2">in</option></select></label>
+        <label>Marqueurs posés <input type="number" id="dmk" value="5" min="0" max="32" style="width:52px"></label>
+      </div>
+      <div class="row sw"><label><input type="checkbox" id="dmen" checked> MIDI MAP actif (switch settings T3)</label>
+        <button class="k" id="reset">Reset config</button></div>
+      <div class="row"><canvas id="bars" class="bars" width="150" height="70"></canvas>
+        <span style="font-size:10px;color:#8a8f96">volumes pistes tape<br>(simulation fade / mute)<br>
+        <label><input type="checkbox" id="x10"> fade x60 (test rapide)</label></span></div>
+    </div>
+    <div class="panel">
+      <h2>MIDI entrant (test du dispatch)</h2>
+      <div class="row"><label>type
+        <select id="mtype"><option value="CC">CC</option><option value="NOTE">NOTE</option>
+        <option value="PC">PC</option></select></label>
+        <label>n° <input type="number" id="mnum" value="80" min="0" max="127" style="width:52px"></label>
+        <label>canal <input type="number" id="mch" value="1" min="1" max="16" style="width:44px"></label>
+        <label>valeur <input type="number" id="mval" value="127" min="0" max="127" style="width:44px"></label>
+        <button class="k" id="msend">Envoyer</button></div>
+      <div style="font-size:10px;color:#8a8f96">NOTE : valeur = vélocité (0 = note-off). CC : front ≥64.</div>
+    </div>
+    <div class="panel" style="flex:1">
+      <h2>Journal des actions</h2>
+      <div id="log"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ============ fonte stroke (transcrite de synth_sdk/screens/stroke_font.h) ============ */
+const SF = [
+ ['0',4,[[0,0,4,0],[4,0,4,6],[4,6,0,6],[0,6,0,0]]],
+ ['1',2,[[1,1,2,0],[2,0,2,6]]],
+ ['2',5,[[0,0,4,0],[4,0,4,3],[4,3,0,3],[0,3,0,6],[0,6,4,6]]],
+ ['3',4,[[0,0,4,0],[4,0,4,6],[4,6,0,6],[1,3,4,3]]],
+ ['4',3,[[0,0,0,3],[0,3,4,3],[4,0,4,6]]],
+ ['5',5,[[4,0,0,0],[0,0,0,3],[0,3,4,3],[4,3,4,6],[4,6,0,6]]],
+ ['6',5,[[4,0,0,0],[0,0,0,6],[0,6,4,6],[4,6,4,3],[4,3,0,3]]],
+ ['7',2,[[0,0,4,0],[4,0,1,6]]],
+ ['8',5,[[0,0,4,0],[4,0,4,6],[4,6,0,6],[0,6,0,0],[0,3,4,3]]],
+ ['9',5,[[4,3,0,3],[0,3,0,0],[0,0,4,0],[4,0,4,6],[4,6,4,6]]],
+ ['A',4,[[0,6,0,0],[0,0,4,0],[4,0,4,6],[0,3,4,3]]],
+ ['B',6,[[0,0,0,6],[0,0,3,0],[3,0,3,3],[0,3,4,3],[4,3,4,6],[4,6,0,6]]],
+ ['C',3,[[4,0,0,0],[0,0,0,6],[0,6,4,6]]],
+ ['D',5,[[0,0,0,6],[0,0,3,0],[3,0,4,2],[4,2,4,6],[4,6,0,6]]],
+ ['E',4,[[4,0,0,0],[0,0,0,6],[0,6,4,6],[0,3,3,3]]],
+ ['F',3,[[4,0,0,0],[0,0,0,6],[0,3,3,3]]],
+ ['G',5,[[4,0,0,0],[0,0,0,6],[0,6,4,6],[4,6,4,3],[4,3,2,3]]],
+ ['#',4,[[1,0,1,6],[3,0,3,6],[0,2,4,2],[0,4,4,4]]],
+ ['/',1,[[4,0,0,6]]],
+ ['T',2,[[0,0,4,0],[2,0,2,6]]],
+ ['+',2,[[0,3,4,3],[2,1,2,5]]],
+ ['-',1,[[0,3,4,3]]],
+ ['%',3,[[4,0,0,6],[0,0,0,1],[4,5,4,6]]],
+ ['P',4,[[0,6,0,0],[0,0,4,0],[4,0,4,3],[4,3,0,3]]],
+ ['.',1,[[1,5,1,6]]],
+ ['S',5,[[4,0,0,0],[0,0,0,3],[0,3,4,3],[4,3,4,6],[4,6,0,6]]],
+ ['Y',3,[[0,0,2,3],[4,0,2,3],[2,3,2,6]]],
+ ['N',3,[[0,6,0,0],[0,0,4,6],[4,6,4,0]]],
+ ['R',5,[[0,6,0,0],[0,0,4,0],[4,0,4,3],[4,3,0,3],[1,3,4,6]]],
+ ['H',3,[[0,0,0,6],[4,0,4,6],[0,3,4,3]]],
+ ['I',3,[[2,0,2,6],[1,0,3,0],[1,6,3,6]]],
+ ['L',2,[[0,0,0,6],[0,6,4,6]]],
+ ['M',4,[[0,6,0,0],[0,0,2,3],[2,3,4,0],[4,0,4,6]]],
+ ['W',4,[[0,0,0,6],[0,6,2,3],[2,3,4,6],[4,6,4,0]]],
+ ['O',4,[[0,0,4,0],[4,0,4,6],[4,6,0,6],[0,6,0,0]]],
+ ['Q',5,[[0,0,4,0],[4,0,4,6],[4,6,0,6],[0,6,0,0],[2,4,4,6]]],
+ ['U',3,[[0,0,0,6],[0,6,4,6],[4,6,4,0]]],
+ ['V',2,[[0,0,2,6],[2,6,4,0]]],
+ ['X',2,[[0,0,4,6],[4,0,0,6]]],
+ ['K',3,[[0,0,0,6],[4,0,0,3],[0,3,4,6]]],
+ ['Z',3,[[0,0,4,0],[4,0,0,6],[0,6,4,6]]],
+ ['J',3,[[4,0,4,6],[4,6,0,6],[0,6,0,4]]],
+ [':',2,[[2,1,2,2],[2,4,2,5]]],
+];
+const C_BLUE=[77,158,255], C_GREEN=[0,237,149], C_WHITE=[255,255,255],
+      C_RED=[255,78,63], C_BLACK=[0,0,0];
+const css = c => `rgb(${c[0]},${c[1]},${c[2]})`;
+const HASDOM = typeof document !== 'undefined';
+
+/* ============ état (miroir de mm2 v3.1) ============ */
+const D_OFF=0, D_SND=1, D_TAPE=2, D_MUTE=3, D_MRK=4, D_MRP=5, D_MRM=6;
+const D_MAX=6, MRK_MAX=32, S_MAX=2;
+const DST_NAMES=["--","SND","TAPE","MUT","MRK","M+","M-"];
+const ST_NAMES=["NOTE","CC","PC"];
+const FADE_NAMES=["OFF","1S","2S","8S","32S"], FADE_SECS=[0,1,2,8,32];
+let rows = Array.from({length:16},()=>({stype:0,snum:0,dst:0,dnum:0}));
+let cur=0, page=0, open=false, learn=false;
+let mmch=1, mmfade=0, mmen=1;
+let acc=[0,0,0,0];
+let shift=false;
+const dev = { mode:'tape', raw:3, punch:0, markers:5 };
+
+function save(){ if(!HASDOM) return; try{ localStorage.setItem('op1midi-sim',
+  JSON.stringify({rows,mmch,mmfade,mmen})); }catch(e){} }
+function load(){ if(!HASDOM) return; try{ const s=JSON.parse(localStorage.getItem('op1midi-sim'));
+  if(s){ rows=s.rows; mmch=s.mmch; mmfade=s.mmfade; mmen=s.mmen; } }catch(e){} }
+
+function dnumRange(d){ return d>=1&&d<=3?[1,d===1?8:4]:d===4?[1,MRK_MAX]:[0,0]; }
+function chName(){ return mmch===0?"OFF":mmch===17?"ALL":String(mmch); }
+
+/* ============ journal ============ */
+const LOG=[];
+function log(msg,cls){ LOG.unshift(msg); if(LOG.length>200) LOG.pop();
+  if(HASDOM){ const logEl=document.getElementById('log'); const d=document.createElement('div');
+    if(cls)d.className=cls; d.textContent=new Date().toLocaleTimeString()+"  "+msg; logEl.prepend(d); } }
+
+/* ============ miroir mm2_edit.c v3.1 ============ */
+function exitKey(c){ return (c>=1&&c<=9)||c===21||(c>=33&&c<=35)||c===44||c===45; }
+function keyName(c){ return {0:"HELP",1:"METRO",2:"SYNTH",3:"DRUM",4:"TAPE",5:"MIXER",6:"T1",7:"T2",
+  8:"T3",9:"T4",21:"REC",33:"REC",34:"PLAY",35:"STOP",36:"GAUCHE",37:"DROITE",44:"MIC",45:"COM",
+  59:"PUSH BLEU",60:"PUSH VERT",61:"PUSH BLANC",62:"PUSH ROUGE"}[c]||("0x"+c.toString(16)); }
+function key(code, pressed, sh){
+  if(!open){
+    if(code===61&&pressed&&!sh&&dev.mode==='clock'){ open=true; cur=page=learn=0; acc=[0,0,0,0];
+      log("éditeur ouvert (appui blanc, clock)","act"); render(); return 1; }
+    return 0;
+  }
+  if(!pressed) return 1;                            /* modal: releases avalées */
+  if(code===0){ close(1); log("Help: validé + fermé","act"); return 1; }
+  if(exitKey(code)){ close(1);
+    log("sortie: "+keyName(code)+(sh?" (Shift: consommée)":" -> la touche agit"),"act"); return sh?1:0; }
+  if(code===36){ page=page?page-1:3; cur=page*4; render(); return 1; }
+  if(code===37){ page=page===3?0:page+1; cur=page*4; render(); return 1; }
+  if(code===59){                                    /* bleu: type / Shift: learn */
+    if(sh){ learn=true; log("LEARN armé (dst "+DST_NAMES[rows[cur].dst]+")","act"); render(); return 1; }
+    rows[cur].stype = rows[cur].stype===S_MAX?0:rows[cur].stype+1;
+    render(); return 1;
+  }
+  return 1;                                         /* autres touches: modal (avalées) */
+}
+function close(sv){ if(sv) save(); open=false; learn=false; render(); }
+function turn(knob, delta, sh){
+  if(!open) return;
+  if((acc[knob]>0&&delta<0)||(acc[knob]<0&&delta>0)) acc[knob]=0;
+  acc[knob]+=delta; let st=Math.trunc(acc[knob]/1024); if(!st) return;
+  acc[knob]-=st*1024;
+  const r=rows[cur];
+  if(knob===3){ let c=cur+st; c=Math.max(0,Math.min(15,c)); cur=c; page=Math.floor(cur/4); }
+  else if(knob===0){ while(st>0){ r.snum=r.snum>=127?0:r.snum+1; st--; }
+                     while(st<0){ r.snum=r.snum?r.snum-1:127; st++; } }
+  else if(knob===1){ if(sh){ while(st>0){chStep(1);st--;} while(st<0){chStep(-1);st++;} }
+    else { while(st>0){ r.dst=r.dst>=D_MAX?D_OFF:r.dst+1; st--; }
+           while(st<0){ r.dst=r.dst?r.dst-1:D_MAX; st++; } } }
+  else if(knob===2){ if(sh){ while(st>0){fadeStep(1);st--;} while(st<0){fadeStep(-1);st++;} }
+    else { const [lo,hi]=dnumRange(r.dst);
+      while(hi>lo&&st>0){ r.dnum=r.dnum>=hi?lo:r.dnum+1; st--; }
+      while(hi>lo&&st<0){ r.dnum=r.dnum<=lo?hi:r.dnum-1; st++; } } }
+  render(); save();
+}
+function chStep(d){ let v=mmch+d; if(v>17)v=0; if(v<0)v=17; mmch=v; save(); }
+function fadeStep(d){ mmfade=(mmfade+d+5)%5; save(); }
+
+/* ---- learn ---- */
+function learnFeedMidi(stype,num){ if(!open||!learn||stype>S_MAX||num<0||num>127) return;
+  const r=rows[cur]; r.stype=stype; r.snum=num; if(!r.dst) r.dst=D_TAPE; learn=false;
+  log("LEARN: source "+ST_NAMES[stype]+" "+num+" -> slot "+(cur+1),"act"); render(); save(); }
+function learnFeedKey(slot){ if(!open||!learn||slot<1||slot>8) return;
+  rows[cur].dnum=slot; learn=false;
+  log("LEARN: touche sound slot "+slot+" -> slot "+(cur+1),"act"); render(); save(); }
+
+/* ---- miroir du hook input du plugin (op1midi.c): ouverture, learn touche, modal ---- */
+let seenDown=0n;
+function input(code, pressed, sh){
+  if(!open){
+    if(code===61&&pressed&&!sh&&dev.mode==='clock'){ open=true; cur=page=learn=0; acc=[0,0,0,0];
+      log("éditeur ouvert (appui blanc, clock)","act"); render(); return 1; }
+    return 0;
+  }
+  if(pressed) seenDown|=1n<<BigInt(code&63);
+  else if(!((seenDown>>BigInt(code&63))&1n)) return 0;      /* release tenue avant l'ouverture */
+  seenDown&=~(1n<<BigInt(code&63));
+  if(learn&&pressed&&code>=6&&code<=9&&rows[cur].dst===D_SND){
+    learnFeedKey(code-6+1+(sh?4:0));                        /* touche sound capturée */
+    return 1;
+  }
+  const was=open; const consumed=key(code,pressed,sh);
+  if(!consumed&&was&&open) return 1;                        /* toujours ouvert: modal */
+  return consumed;                                          /* 0: sortie, la touche agit */
+}
+
+/* ============ miroir dispatch (mm2_core.c) ============ */
+let prev=Array(16).fill(0);
+function envQuery(){ return { tape_mode:dev.mode==='tape', raw:+dev.raw, punch:+dev.punch, markers:+dev.markers }; }
+function match(stype,num,ch){ if(!mmen||!mmch) return -1;
+  for(let i=0;i<16;i++){ const r=rows[i];
+    if(r.dst&&r.stype===stype&&r.snum===num&&(mmch===17||mmch===ch+1)) return i; } return -1; }
+function run(i){ const r=rows[i], e=envQuery();
+  switch(r.dst){
+    case D_SND: if(r.dnum>=1&&r.dnum<=8) log("ACTION SOUND: injection SYNTH + "+
+      (r.dnum>4?"Shift+T"+(r.dnum-4):"T"+r.dnum)+" (slot "+r.dnum+")","act"); return;
+    case D_TAPE: if(r.dnum>=1&&r.dnum<=4){
+        if(e.punch){ log("TAPE "+r.dnum+": ignoré (punch actif)","ign"); return; }
+        if(e.raw===5||e.raw===7){ log("TAPE "+r.dnum+": refusé par le core (rec/disk)","ign"); return; }
+        if(e.raw===10) log("TAPE "+r.dnum+": le core arrête la lecture puis switch","act");
+        else log("SWITCH TAPE "+r.dnum,"act"); } return;
+    case D_MUTE: if(r.dnum>=1&&r.dnum<=4){ bars.mute[r.dnum-1]^=1;
+        log("MUTE piste "+r.dnum+": toggle -> "+(bars.mute[r.dnum-1]?"muet":"audible"),"act"); drawBars(); } return;
+    case D_MRK: if(!e.tape_mode||e.punch||(e.raw!==3&&e.raw!==10)){ log("MRK "+r.dnum+": ignoré (garde)","ign"); return; }
+      if(r.dnum>MRK_MAX||r.dnum>e.markers){ log("MRK "+r.dnum+": ignoré (plage/marqueurs posés)","ign"); return; }
+      jump(e,undefined,r.dnum); return;
+    case D_MRP: case D_MRM: if(!e.tape_mode||e.punch||(e.raw!==3&&e.raw!==10)||!e.markers){
+        log("MRK"+(r.dst===D_MRP?"+":"-")+": ignoré (garde)","ign"); return; } jump(e,r.dst===D_MRP?1:-1); return;
+  }
+}
+function jump(e,dir,target){                            /* miroir du moteur de fade (glue) */
+  const playing=e.raw===10, f=FADE_SECS[mmfade];
+  const what=dir===undefined?("marker "+target):"prochain/précédent marqueur (au curseur)";
+  if(playing&&f>0){
+    if(bars.st){ log("saut ignoré: fade déjà en cours","ign"); return; }
+    startFadeAnim(f);
+    log("FADE OUT "+f+"s -> saut ("+what+") -> FADE IN "+f+"s","fade");
+  } else {
+    log("SAUT immédiat: "+what+" + PLAY","act");
+  }
+}
+
+/* ---- dispatch ---- */
+function dispatch(type,num,ch,val){
+  if(!mmen){ log("MIDI "+type+" "+num+": ignoré (MIDI MAP inactif)","ign"); return false; }
+  if(!mmch){ log("MIDI "+type+" "+num+": ignoré (canal OFF)","ign"); return false; }
+  if(mmch!==17&&mmch!==ch){ log("MIDI "+type+" "+num+" ch"+ch+": ignoré (canal "+chName()+")","ign"); return false; }
+  if(learn){ if(rows[cur].dst===D_SND){ log("learn touche en cours: MIDI ignoré","ign"); return true; }
+    learnFeedMidi(type==="CC"?1:type==="PC"?2:0, num);
+    if(type==="CC") log("CC "+num+" taken (op1_midi_take_cc)","act"); return true; }
+  const st=type==="CC"?1:type==="PC"?2:0;
+  const hit=match(st,num,ch-1);                     /* UI 1-based -> C 0-based */
+  if(hit<0){ log("MIDI "+type+" "+num+" ch"+ch+": aucune ligne (passe au stock)","ign"); return false; }
+  if(type==="CC"){ if(!(val>=64&&prev[hit]<64)){ prev[hit]=val;
+      log("CC "+num+" ch"+ch+" val "+val+": ligne "+(hit+1)+" consommée (pas de front)","ign"); return true; }
+    prev[hit]=val; }
+  if(type==="NOTE"&&val<=0){ log("NOTE "+num+" off: avalée (mappée)","ign"); return true; }
+  log("TRIGGER ligne "+(hit+1)+": "+ST_NAMES[st]+" "+num+" -> "+DST_NAMES[rows[hit].dst]+" "+rows[hit].dnum,"act");
+  run(hit);
+  return true;
+}
+
+/* ---- animation fade (4 barres, navigateur uniquement) ---- */
+const bars={ vol:[80,60,90,70], mute:[0,0,0,0], disp:[80,60,90,70], st:0, t:0, dur:0 };
+function startFadeAnim(secs){ bars.st=1; bars.t=0; bars.dur=secs; bars.from=[...bars.vol]; }
+function fadeFrame(dt){ if(!HASDOM||!bars.st) return;
+  const sp=document.getElementById('x10').checked?60:1;
+  bars.t+=dt*sp;
+  const p=Math.min(1,bars.t/bars.dur);
+  for(let t=0;t<4;t++){ if(bars.mute[t]){ bars.disp[t]=0; continue; }
+    bars.disp[t]=bars.st===1?bars.from[t]*(1-p):bars.from[t]*p; }
+  if(bars.t>=bars.dur){
+    if(bars.st===1){ bars.st=2; bars.t=0;
+      log("SAUT au silence: locate + PLAY","fade"); for(let t=0;t<4;t++) bars.vol[t]=bars.from[t];
+    } else { bars.st=0; log("FADE terminé: volumes restaurés","fade"); }
+  }
+  drawBars(); }
+function drawBars(){ if(!HASDOM) return;
+  const bctx=document.getElementById('bars').getContext('2d');
+  bctx.fillStyle="#000"; bctx.fillRect(0,0,150,70);
+  for(let t=0;t<4;t++){ const h=Math.round(bars.disp[t]/100*60);
+    bctx.fillStyle=bars.mute[t]?"#552222":css(C_GREEN); bctx.fillRect(10+t*34,64-h,20,h);
+    bctx.fillStyle="#666"; bctx.font="9px monospace"; bctx.fillText("P"+(t+1)+(bars.mute[t]?" M":""),10+t*34,10); } }
+
+/* ---- rendu OLED ---- */
+function render(){ if(!HASDOM) return;
+  const ctx=document.getElementById('scr').getContext('2d');
+  const seg=(x0,y0,x1,y1,w,c)=>{ ctx.strokeStyle=css(c); ctx.lineWidth=w; ctx.lineCap="butt";
+    ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke(); };
+  const sfText=(x,y,t,c,S=2.5)=>{ ctx.strokeStyle=css(c); ctx.lineWidth=1.5; ctx.lineCap="butt";
+    for(const ch of String(t)){ const f=SF.find(f=>f[0]===ch.toUpperCase());
+      if(f) for(const g of f[2]) seg(x+g[0]*S, y+g[1]*S, x+g[2]*S, y+g[3]*S, 1.5, c);
+      x += (ch==='1'||ch==='.'?4:6)*S; } };
+  ctx.fillStyle="#000"; ctx.fillRect(0,0,320,160);
+  if(!open){ sfText(8,60,"MIDI MAP",C_WHITE);
+    sfText(8,90,mmen?"ACTIF (settings T3)":"INACTIF",mmen?C_GREEN:C_RED);
+    sfText(8,120,"BLANC: OUVRIR L'EDITEUR",C_WHITE); return; }
+  ctx.fillStyle="#000"; ctx.fillRect(6,4,308,152);
+  const hline=(x0,x1,y,c)=>seg(x0,y,x1,y,2,c);
+  hline(7,313,4,C_WHITE); hline(7,313,156,C_WHITE); seg(6,4,6,156,2,C_WHITE); seg(314,4,314,156,2,C_WHITE);
+  const X_SL=8, X_ST=34, X_SN=90, X_DT=140, X_DN=210, Y_T=10, Y0=40, DY=26;
+  sfText(X_SL,Y_T,"MIDI MAP",C_WHITE);
+  sfText(130,Y_T,"P"+(page+1)+"/4",C_WHITE);
+  sfText(174,Y_T,"CH:"+chName(),C_GREEN);
+  sfText(238,Y_T,"F:"+FADE_NAMES[mmfade],C_GREEN);
+  if(learn) sfText(286,Y_T,"LRN",C_RED);
+  for(let k=0;k<4;k++){
+    const i=page*4+k, w=rows[i], cur_=i===cur;
+    const col=cur_?C_RED:C_WHITE, csrc=cur_?C_RED:C_BLUE, cdst=cur_?C_RED:C_GREEN;
+    const y=Y0+k*DY;
+    sfText(X_SL,y,String(i+1),C_RED);
+    sfText(X_ST,y,ST_NAMES[w.stype],csrc);
+    sfText(X_SN,y,String(w.snum),csrc);
+    sfText(X_DT,y,DST_NAMES[w.dst],cdst);
+    const rng=dnumRange(w.dst);
+    sfText(X_DN,y,rng.hi>rng.lo?String(w.dnum):"--",col);
+  }
+}
+
+/* ============ UI navigateur ============ */
+if(HASDOM){
+load();
+const scr=document.getElementById('scr'); render(); drawBars();
+const KNOBS=[["BLEU",C_BLUE,"type (clic) / n° (rot)","Shift+clic: LEARN"],
+  ["VERT",C_GREEN,"destination (rot)","Shift+rot: canal"],
+  ["BLANC",C_WHITE,"n° destination (rot)","Shift+rot: fade"],
+  ["ROUGE",C_RED,"curseur (rot)",""]];
+const knobsEl=document.getElementById('knobs');
+KNOBS.forEach((k,i)=>{
+  const d=document.createElement('div'); d.className='kn';
+  const cv=document.createElement('canvas'); cv.width=84; cv.height=84; d.appendChild(cv);
+  const l=document.createElement('div'); l.className='lbl'; l.style.color=css(k[1]); l.textContent=k[0]; d.appendChild(l);
+  const h=document.createElement('div'); h.className='hint'; h.innerHTML=k[2]+"<br>"+k[3]; d.appendChild(h);
+  knobsEl.appendChild(d);
+  const c2=cv.getContext('2d'); let ang=0;
+  const draw=()=>{ c2.fillStyle="#1c1f24"; c2.beginPath(); c2.arc(42,42,38,0,7); c2.fill();
+    c2.strokeStyle=css(k[1]); c2.lineWidth=4; c2.beginPath(); c2.arc(42,42,34,0,7); c2.stroke();
+    c2.strokeStyle="#fff"; c2.lineWidth=3; c2.beginPath();
+    c2.moveTo(42+Math.cos(ang-Math.PI/2)*14,42+Math.sin(ang-Math.PI/2)*14);
+    c2.lineTo(42+Math.cos(ang-Math.PI/2)*30,42+Math.sin(ang-Math.PI/2)*30); c2.stroke(); };
+  draw();
+  let drag=null, accPx=0;
+  cv.addEventListener('mousedown',e=>{ drag={y:e.clientY,moved:0,t:Date.now()}; e.preventDefault(); });
+  window.addEventListener('mousemove',e=>{ if(!drag)return;
+    const dy=e.clientY-drag.y; drag.y=e.clientY; drag.moved+=Math.abs(dy);
+    accPx-=dy; ang-=dy*0.02; draw();                    /* glisser vers le haut = tourner à droite */
+    while(Math.abs(accPx)>=14){ const s=accPx>0?1:-1; accPx-=s*14; turn(i,s*1024,shift); } });
+  window.addEventListener('mouseup',()=>{ if(drag&&drag.moved<6&&Date.now()-drag.t<400){
+      input(59+i,1,shift); }
+    drag=null; accPx=0; });
+  cv.onwheel=e=>{ e.preventDefault(); const s=e.deltaY<0?1:-1; ang-=s*0.4; draw(); turn(i,s*1024,shift); };
+});
+const KEYS=[["HELP",0],["METRO",1],["SYNTH",2],["DRUM",3],["TAPE",4],["MIXER",5],
+  ["T1",6],["T2",7],["T3",8],["T4",9],["SEQ",21],["MIC",44],["COM",45],
+  ["◀",36],["▶",37],["REC",33],["PLAY",34],["STOP",35]];
+const keysEl=document.getElementById('keys');
+const shBtn=document.createElement('button'); shBtn.className='k'; shBtn.textContent="SHIFT";
+shBtn.onclick=()=>{ shift=!shift; shBtn.classList.toggle('shift-on',shift); };
+keysEl.appendChild(shBtn);
+function modeAction(c){ return {2:"mode synth",3:"mode drum",4:"mode tape",5:"mode mixer",
+  6:"page T1",7:"page T2",8:"page T3",9:"page T4",21:"REC",34:"PLAY",35:"STOP",44:"mic",45:"COM",
+  1:"métronome",0:"help/clock"}[c]||"?"; }
+KEYS.forEach(([lbl,code])=>{ const b=document.createElement('button'); b.className='k'; b.textContent=lbl;
+  b.onclick=()=>{ const wasOpen=open; const consumed=input(code,1,shift);
+    if(!wasOpen&&!consumed&&code!==0) log("touche "+keyName(code)+": stock ("+modeAction(code)+")","ign"); };
+  keysEl.appendChild(b); });
+window.addEventListener('keydown',e=>{ if(e.key==='Shift'){ shift=true; shBtn.classList.add('shift-on'); }
+  if(e.key==='ArrowLeft') input(36,1,shift); if(e.key==='ArrowRight') input(37,1,shift); });
+window.addEventListener('keyup',e=>{ if(e.key==='Shift'){ shift=false; shBtn.classList.remove('shift-on'); } });
+document.getElementById('dmode').onchange=e=>{ dev.mode=e.target.value; };
+document.getElementById('dstate').onchange=e=>{ dev.raw=+e.target.value; };
+document.getElementById('dpunch').onchange=e=>{ dev.punch=+e.target.value; };
+document.getElementById('dmk').onchange=e=>{ dev.markers=+e.target.value; };
+document.getElementById('dmen').onchange=e=>{ mmen=e.target.checked?1:0; save();
+  log("switch settings T3: MIDI MAP "+(mmen?"ON":"OFF"),"act"); render(); };
+document.getElementById('reset').onclick=()=>{ localStorage.removeItem('op1midi-sim');
+  rows=Array.from({length:16},()=>({stype:0,snum:0,dst:0,dnum:0})); mmch=1; mmfade=0; mmen=1;
+  document.getElementById('dmen').checked=true; render(); log("config réinitialisée","act"); };
+document.getElementById('msend').onclick=()=>{ dispatch(document.getElementById('mtype').value,
+  +document.getElementById('mnum').value, +document.getElementById('mch').value,
+  +document.getElementById('mval').value); };
+let lastT=0; const loop=t=>{ const dt=(t-lastT)/1000; lastT=t; fadeFrame(dt); requestAnimationFrame(loop); };
+requestAnimationFrame(loop);
+log("simulateur prêt — miroir mm2 v3.1; mode clock + appui blanc pour ouvrir l'éditeur","act");
+}
+
+/* ============ self-tests headless (node /tmp/.../sim.js) ============ */
+if(!HASDOM){
+  let n=0; const A=(c,m)=>{ if(!c){ console.error("FAIL:",m); process.exit(1); } n++; };
+  dev.mode='clock'; dev.raw=3; dev.punch=0; dev.markers=5;
+  A(input(61,1,false)===1&&open===true,"ouverture: appui blanc en clock");
+  turn(3,2*1024,false); A(cur===2&&page===0,"curseur +2 -> slot 3 page 1");
+  turn(3,6*1024,false); A(cur===8&&page===2,"curseur +6 -> slot 9 page 3");
+  turn(0,3*1024,false); A(rows[cur].snum===3,"bleu: snum 3");
+  input(59,1,false); input(59,1,false); input(59,1,false); A(rows[cur].stype===0,"bleu clic x3: wrap PC->NOTE");
+  turn(1,1*1024,false); A(rows[cur].dst===D_SND,"vert +1: OFF->SND");
+  turn(1,7*1024,false); A(rows[cur].dst===D_SND,"vert +7: cycle complet retour SND");
+  turn(1,-1*1024,false); A(rows[cur].dst===D_OFF,"vert -1: SND->OFF");
+  turn(1,4*1024,false); A(rows[cur].dst===D_MRK,"vert +4: SND->TAPE->MUT->MRK");
+  turn(2,1*1024,false); A(rows[cur].dnum===1,"blanc: dnum 0->1 (MRK 1..32)");
+  turn(2,35*1024,false); A(rows[cur].dnum===4,"blanc +35: cyclique 1..32 -> 4");
+  turn(2,-1*1024,false); A(rows[cur].dnum===3,"blanc -1: 4->3");
+  mmfade=2; const L0=LOG.length;
+  A(input(0,1,false)===1&&!open,"Help seul: ferme (consommé)");
+  A(LOG[0].includes("validé"),"log de validation présent");
+  dev.mode='tape'; dev.raw=10; mmfade=1;
+  input(61,1,false); /* rouvrir (mode tape: refusé) */ A(!open,"appui blanc hors clock: rien");
+  dev.mode='clock'; input(61,1,false); A(open,"réouverture en clock");
+  /* learn MIDI */
+  input(59,1,true); A(learn,"Shift+clic bleu: learn armé");
+  learnFeedMidi(1,44); A(rows[cur].snum===44&&!learn,"learn MIDI capture CC 44");
+  /* learn touche (dst SND) */
+  turn(1,-1*1024,false); A(rows[cur].dst===D_SND,"vert -1: MRK->...->SND");
+  input(59,1,true); A(learn,"learn réarmé");
+  A(input(8,1,true)===1&&!learn&&rows[cur].dnum===7,"learn touche: T3 pressé -> slot 7 (avalé)");
+  /* dispatch */
+  open=false; dev.raw=3; dev.punch=0;
+  mmch=1; rows[0]={stype:1,snum:80,dst:D_TAPE,dnum:2};
+  A(dispatch1("CC",80,1,127)===true,"CC 80 ch1: consommé");
+  A(LOG[0].includes("SWITCH TAPE 2"),"dispatch TAPE 2");
+  A(dispatch1("CC",80,1,127)===true&&LOG[0].includes("pas de front"),"CC tenu: pas de front");
+  A(dispatch1("CC",80,2,127)===false,"CC 80 ch2: canal");
+  mmch=17; A(dispatch1("CC",80,3,127)===true,"canal ALL: ch3 consommé");
+  rows[1]={stype:0,snum:60,dst:D_MUTE,dnum:2};
+  A(dispatch1("NOTE",60,1,100)===true,"NOTE 60: consommé");
+  A(bars.mute[1]===1,"MUTE piste 2 togglé");
+  A(dispatch1("NOTE",60,1,0)===true&&bars.mute[1]===1,"NOTE off: avalée, mute inchangé");
+  rows[2]={stype:2,snum:7,dst:D_MRK,dnum:5};
+  dev.mode='tape'; dev.raw=5; A(dispatch1("PC",7,1,0)===false===false,"PC rec: géré"); /* pas de crash */
+  A(LOG[0].includes("garde"),"MRK en rec: garde");
+  dev.raw=3; dispatch1("PC",7,1,0); A(LOG[0].includes("marker 5"),"MRK 5: saut immédiat (arrêt)");
+  dev.raw=10; mmfade=0; dispatch1("PC",7,1,0); A(LOG[0].includes("SAUT immédiat"),"lecture sans fade: saut immédiat");
+  mmfade=2; dispatch1("PC",7,1,0); A(LOG[0].includes("FADE OUT 2s"),"lecture + fade: FADE OUT");
+  /* sorties */
+  dev.mode='clock'; input(61,1,false); A(open,"éditeur rouvert");
+  A(input(4,1,false)===0&&!open,"sortie TAPE sans shift: passthrough");
+  input(61,1,false); A(input(4,1,true)===1&&!open,"sortie TAPE avec shift: consommée");
+  console.log("self-test: "+n+" vérifications OK");
+  function dispatch1(t,n,c,v){ return dispatch(t,n,c,v); }
+}
+</script>
+</body>
+</html>
