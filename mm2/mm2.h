@@ -11,15 +11,19 @@
  * Format versionné par la clé 'mmv' (= MM2_FMT): une version différente remet les lignes à zéro.
  *
  * Éditeur (mm2_edit.c): machine à états pure, sans rendu. Rendu côté intégration: colonnes aux
- * couleurs des encodeurs, ligne du curseur en rouge.
- *   bleu: clic = cycle type source; Shift+clic = learn on/off; rotation = n° source;
- *         Shift+rotation = canal global (colonne type du curseur l'affiche tant que Shift tenu;
- *         learn armé, elle affiche LRN tant que rien n'est capturé)
- *   vert: rotation = n° de destination (SND 1..8, TAPE 1..4, MUTE 1..4, MRK 1..32)
- *   blanc: rotation = fade (OFF/1s/2s/8s/32s, plus de Shift)
- *   rouge: rotation = destination (SND TAPE MUT MRK M+ M- OFF); Shift+clic = supprimer la ligne
- *   flèches 0x24/0x25 = pages; Shift + Help (0x00) = valider + fermer; touches de
- *   mode/T/transport = quitter (sauvegarde systématique; sans Shift la touche agit: retour 0). */
+ * couleurs des encodeurs, ligne du curseur en surbrillance.
+ *   bleu: rotation = curseur (16 slots, la page suit); clic = mode d'affichage des notes
+ *         (numéro / anglais C#4 / solfège DO#4 — global, clé 'mmnd'); Shift+clic = vider la ligne
+ *   vert: rotation = n° source / Shift+rotation = canal de ligne; clic = type NOTE/CC/PC;
+ *         Shift+clic = learn MIDI on-off (le premier NOTE/CC/PC capture)
+ *   blanc: rotation = destination en liste plate (OFF, SND 1..8, TAPE 1..4, MUTE 1..4,
+ *         MRK 1..32, M+, M-); clic seul = sortie du learn touche; Shift+clic = learn touche
+ *         on-off (la destination de la ligne doit être SND)
+ *   rouge: rotation = fade (OFF/1s/2s/8s/32s) / Shift+rotation = pistes du fade;
+ *         Shift+clic = supprimer la ligne
+ *   flèches = pages; Help (0x00) = valider + fermer; touches de mode/T/transport = quitter
+ *   (sauvegarde systématique; sans Shift la touche agit: retour 0) — SAUF learn armé: toutes
+ *   les touches sont avalées (retour 1), Help reste valide. */
 #ifndef MM2_H
 #define MM2_H
 #include <stdint.h>
@@ -60,12 +64,15 @@ extern void (*mm2_act_mprev)(int fade, int fmask);
 typedef struct { int tape_mode, raw_state, punch, markers; } mm2_env;
 extern void (*mm2_env_query)(mm2_env *e);   /* gardes: raw_state 3 arrêt / 10 lecture autorisés */
 
-/* ---- cycle de vie / persistance ('mmv', 'mmch', 'mmfade', 'mmr0'..'mmr15') ---- */
+/* ---- cycle de vie / persistance ('mmv', 'mmen', 'mmnd', 'mmr0'..'mmr15') ---- */
 void mm2_load(void);
 void mm2_save(void);
 int  mm2_enabled(void);
 void mm2_enable(int on);
 void mm2_dnum_range(int dst, int *lo, int *hi);        /* plage valide du n° (0..0 si sans paramètre) */
+int  mm2_note_disp(void);                  /* affichage des notes: 0 numéro, 1 anglais, 2 solfège */
+void mm2_note_disp_cycle(void);            /* clic bleu: numéro -> anglais -> solfège -> numéro */
+const char *mm2_note_name(int note);       /* rendu selon le mode: "61" / "C#4" / "DO#4" (statique) */
 
 /* ---- dispatch (n'importe quel thread; 1 = consommé) ---- */
 int  mm2_cc(int ch, int cc, int v);         /* ch 0..15 (octet de statut & 15) */

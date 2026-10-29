@@ -368,6 +368,30 @@ key learn muet, pictos coin haut-gauche, toasts de diag à trier (demandes user)
 
 Reste: test hardware v6.7 (key learn sur ligne SND, pictos), README utilisateur.
 
+## 22. v6.8 — learn blindé, clear slot, notes en toutes lettres (29 octobre 2026)
+
+v6.7 confirmée: **pictos disparus** (théorie de l'atlas glyphes+icônes validée), midi learn
+et key learn fonctionnels. Trois demandes user, trois changements:
+
+1. **Learn blindé**: learn armé (midi ou touche) → **aucune touche ne quitte** l'éditeur
+   (`mm2_edit_key`: exit_key avalées si `learn`). Échappatoires: Help valide+ferme toujours,
+   clic blanc seul sort du learn touche, Shift+vert bascule le learn MIDI. Avant: une touche
+   de mode/transport pendant la fenêtre de learn fermait tout.
+2. **Clic bleu**: Shift+clic bleu = **vider la ligne** (comme Shift+rouge) — le binding
+   n'était tout simplement pas implémenté (le clic bleu était avalé muet). Clic bleu seul =
+   **mode d'affichage des notes**, global, persisté `'mmnd'`: numéro (60) → anglais (C#4) →
+   solfège (DO#4). Toast avec la note du curseur en échantillon.
+3. **Minuscules**: la police vectorielle kennel n'a que des majuscules → **petites
+   capitales** (scale 1, ligne de base alignée) pour les unités: canal Shift = « ch n »,
+   fade = « 1s/2s/8s/32s ». Toasts de fade en vraies minuscules (police firmware):
+   « fade 1s ». En-tête v7 corrigé (rôles des encodeurs étaient périmés).
+- **`op1midi.knl` v6.8** : 18 764 o (text 8936, rodata 2576, bss 344), 17 imports, 0 warning.
+  mm2_test ok (nouveaux tests: noms de notes, mmnd persisté, sorties avalées pendant learn,
+  Shift+bleu vide la ligne).
+
+Reste: test hardware v6.8 (notes anglaises/solfège, clear bleu, learn blindé), README utilisateur.
+
+
 
 ## 20. v6.6 — fix Shift: l'éditeur modal avalait l'appui Shift (28 octobre 2026)
 

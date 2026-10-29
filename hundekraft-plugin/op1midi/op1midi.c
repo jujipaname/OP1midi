@@ -4,17 +4,23 @@
  * Entree: Shift + Help (mode clock) -> T3 (settings) -> rangée "MIDI MAP" (op1_switch
  * enregistré au 1er OP1_EV_SERVICE après le BOOT_DONE (après midiseq): 2e rangée = blanche):
  * tourner = ON/OFF global, appui blanc = ouvre l'éditeur.
- * Éditeur v7 (overlay modal sur voile + panneau noir, police vectorielle kennel, majuscules):
- *   bleu: rotation = n° source; Shift+rotation = canal global (la colonne source du curseur
- *         affiche CH n / ALL tant que Shift est tenu; learn armé, elle affiche LRN)
- *   vert: clic = type source (NOTE/CC/PC); Shift+clic = learn MIDI on/off (toast); rotation =
- *         destination + n° en liste plate (OFF, SND 1..8, TAPE 1..4, MUTE 1..4, MRK 1..32, M+, M-)
- *   blanc: rotation = fade OFF/1s/2s/8s/32s (toast); Shift+clic = learn touche on/off
- *         (toast; la destination doit être SND, sinon toast « snd requis »); clic seul = sortie
- *   rouge: rotation = curseur (16 slots, la page suit); Shift+clic = supprimer la ligne
+ * Éditeur v8 (overlay modal sur voile + panneau noir, police vectorielle kennel, majuscules;
+ * les unités — ch, s — en petites capitales, la police n'a que des majuscules):
+ *   bleu: rotation = curseur (16 slots, la page suit); clic = affichage des notes
+ *         (numéro / anglais C#4 / solfège DO#4 — global, 'mmnd', toast); Shift+clic = vider
+ *         la ligne
+ *   vert: rotation = n° source / Shift+rotation = canal de ligne (la colonne source du
+ *         curseur affiche ch n / ALL tant que Shift est tenu; learn armé, elle affiche LRN);
+ *         clic = type source (NOTE/CC/PC); Shift+clic = learn MIDI on/off (toast)
+ *   blanc: rotation = destination + n° en liste plate (OFF, SND 1..8, TAPE 1..4, MUTE 1..4,
+ *         MRK 1..32, M+, M-); clic seul = sortie du learn touche; Shift+clic = learn touche
+ *         on/off (toast; la destination doit être SND, sinon toast « key: snd requis »)
+ *   rouge: rotation = fade (OFF/1s/2s/8s/32s — toast) / Shift+rotation = pistes du fade;
+ *         Shift+clic = supprimer la ligne
  *   fleches = pages; sorties (sauvegarde systématique): Help (Shift ou non), touches de mode /
- *   T1..T4 / transport (la touche agit ensuite sauf Shift tenu). Toasts de learn (armement et
- *   capture) pour suivre l'état. Curseur en rouge, colonnes aux couleurs des encodeurs.
+ *   T1..T4 / transport (la touche agit ensuite sauf Shift tenu) — SAUF learn armé: toutes les
+ *   touches sont avalées (Help valide toujours; clic blanc seul sort du learn touche). Toasts
+ *   de learn (armement et capture). Curseur en rouge, colonnes aux couleurs des encodeurs.
  *
  * Sources: NOTE (note-on vel > 0; note-off mappée avalée via le pipeline), CC (front >= 64),
  * PC (chaque message). Destinations: SOUND 1..8 (learn par touche: Shift+clic blanc arme — la
@@ -360,16 +366,6 @@ static void pip_note_off(const op1_note *n, int next)
     op1_note_off(next, n);
 }
 
-/* ---- journal du key learn (toutes les touches appuyées sont enregistrées) ---- */
-static void log_key_learn(const char *what)
-{
-    char b[40];
-    char *e = put_str(b, "KEY LEARN: ");
-    e = put_str(e, what);
-    *e = 0;
-    op1_toast(b);                                    /* et traçable par l'émulateur */
-}
-
 /* ---- entrées: ouverture (appui blanc en mode clock) + éditeur modal ---- */
 static uint64_t seen_down;
 static int input(const op1_input *in)
@@ -402,10 +398,9 @@ static int input(const op1_input *in)
             op1_toast(b);                         /* v6.7: feedback learn (demande user) */
             return 1;                             /* avalée: rien ne bouge pendant l'apprentissage */
         }
-        if (mm2_edit_learn_state() == MM2_L_KEY && in->pressed)
-            log_key_learn("touche enregistrée");      /* toutes les touches sont tracées */
         int was = mm2_edit_view();
         int l0 = mm2_edit_learn_state();
+        int nd0 = mm2_note_disp();
         int consumed = mm2_edit_key(in->code, in->pressed, MM_SHIFT);
         int l1 = mm2_edit_learn_state();
         if (l1 != l0)                             /* v6.7: transition de learn en toast */
@@ -413,6 +408,13 @@ static int input(const op1_input *in)
         else if (l1 == MM2_L_NONE && in->pressed && in->code == 0x3D && MM_SHIFT &&
                  mm2_row_get(mm2_edit_cursor())->dst != MM2_D_SND)
             op1_toast("key: snd requis");         /* Shift+blanc hors SND: expliquer le refus */
+        if (mm2_note_disp() != nd0) {             /* v6.8: clic bleu, mode d'affichage des notes */
+            const mm2_row *cr = mm2_row_get(mm2_edit_cursor());
+            char b[14], *e = put_str(b, "notes: ");
+            e = put_str(e, mm2_note_name(cr->stype == MM2_S_NOTE ? cr->snum : 60));
+            *e = 0;
+            op1_toast(b);
+        }
         if (was) takes_dirty = 1;                                 /* fermeture ou suppression: re-appliquer */
         if (!consumed && was && mm2_edit_view()) return 1;        /* toujours ouvert: modal */
         return consumed;                                          /* 0: sortie, la touche agit */
@@ -421,7 +423,7 @@ static int input(const op1_input *in)
         int f0 = mm2_row_get(mm2_edit_cursor())->fade;
         mm2_edit_turn(in->code, in->delta, MM_SHIFT);
         if (in->type == OP1_IN_KNOB && in->code == 2 && mm2_row_get(mm2_edit_cursor())->fade != f0) {
-            static const char *const fn[] = { "FADE OFF", "FADE 1S", "FADE 2S", "FADE 8S", "FADE 32S" };
+            static const char *const fn[] = { "fade off", "fade 1s", "fade 2s", "fade 8s", "fade 32s" };
             op1_toast(fn[mm2_row_get(mm2_edit_cursor())->fade]);
         }
         return 1;
@@ -479,7 +481,6 @@ static char *put_num(char *e, int v)                       /* 0..255 */
 
 static const char *const st_names[] = { "NOTE", "CC", "PC" };
 static const char *const dst_names[] = { "--", "SND", "TAPE", "MUT", "MRK", "M+", "M-" };
-static const char *const fade_names[] = { "OFF", "1S", "2S", "8S", "32S" };
 static const char *dstTextOfRow(const mm2_row *w)          /* "mrk 11" / "snd 3" / "--" */
 {
     static char b[12];
@@ -491,18 +492,10 @@ static const char *dstTextOfRow(const mm2_row *w)          /* "mrk 11" / "snd 3"
     return b;
 }
 
-static const char *rowChDisp(const mm2_row *w)             /* canal de la ligne */
-{
-    int ch = w->ch ? w->ch : MM2_CH_ALL;                   /* 0 = non réglé: ALL */
-    if (ch == MM2_CH_ALL) return "ALL";
-    static char b[6];
-    char *e = put_str(b, "CH ");
-    put_num(e, ch);
-    return b;
-}
-
 /* ---- cellules: police vectorielle kennel (majuscules uniquement) ---- */
 #define SF_S OP1_Q10(2)                              /* 6 unités × 2 = 12 px de haut */
+#define SF_SMALL OP1_Q10(1)                          /* petites capitales (unités ch, s): 6 px */
+#define SF_DROP OP1_Q10(6)                           /* descente: ligne de base alignée (12 − 6 px) */
 
 static void mm_cell(void *r, int x0, int x1, int y, const uint8_t *c)   /* fond de cellule (surbrillance) */
 {
@@ -544,14 +537,34 @@ static void overlay(void *r, int32_t screen)
         put_num(n, i + 1);
         int yq = OP1_Q10(y);
         sf_text(r, OP1_Q10(xs[0]), yq, SF_S, n, 0x600, tc);
-        char s[14]; char *se;
-        if (i == cur && mm2_edit_learn_state() != MM2_L_NONE) se = put_str(s, "LRN");
-        else if (i == cur && sh_held) se = put_str(s, rowChDisp(w));
-        else { se = put_str(s, st_names[w->stype]); *se++ = ' '; se = put_num(se, w->snum); }
-        *se = 0;
-        sf_text(r, OP1_Q10(xs[1]), yq, SF_S, s, 0x600, cur_ ? c_black : cols[1]);
+        if (i == cur && mm2_edit_learn_state() != MM2_L_NONE) {
+            sf_text(r, OP1_Q10(xs[1]), yq, SF_S, "LRN", 0x600, c_black);
+        } else if (i == cur && sh_held) {          /* canal de la ligne, petites capitales */
+            int ch = w->ch ? w->ch : MM2_CH_ALL;
+            if (ch == MM2_CH_ALL) sf_text(r, OP1_Q10(xs[1]), yq, SF_S, "ALL", 0x600, c_black);
+            else {
+                char nb[4];
+                put_num(nb, ch);
+                int xe = sf_text(r, OP1_Q10(xs[1]), yq + SF_DROP, SF_SMALL, "CH", 0x600, c_black);
+                sf_text(r, xe + OP1_Q10(2), yq, SF_S, nb, 0x600, c_black);
+            }
+        } else {
+            char sb[14]; char *se;
+            if (w->stype == MM2_S_NOTE && mm2_note_disp())   /* v6.8: C#4 / DO#4 / numéro */
+                se = put_str(sb, mm2_note_name(w->snum));
+            else { se = put_str(sb, st_names[w->stype]); *se++ = ' '; se = put_num(se, w->snum); }
+            *se = 0;
+            sf_text(r, OP1_Q10(xs[1]), yq, SF_S, sb, 0x600, cur_ ? c_black : cols[1]);
+        }
         sf_text(r, OP1_Q10(xs[2]), yq, SF_S, dstTextOfRow(w), 0x600, cur_ ? c_black : cols[2]);
-        sf_text(r, OP1_Q10(xs[3]), yq, SF_S, fade_names[w->fade], 0x600, cur_ ? c_black : cols[3]);
+        {                                          /* fade: secondes en petites capitales */
+            const uint8_t *fc = cur_ ? c_black : cols[3];
+            if (w->fade) {
+                static const char *const fsec[4] = { "1", "2", "8", "32" };
+                int xe = sf_text(r, OP1_Q10(xs[3]), yq, SF_S, fsec[w->fade - 1], 0x600, fc);
+                sf_text(r, xe, yq + SF_DROP, SF_SMALL, "S", 0x600, fc);
+            } else sf_text(r, OP1_Q10(xs[3]), yq, SF_S, "OFF", 0x600, fc);
+        }
     }
 }
 

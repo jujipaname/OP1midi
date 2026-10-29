@@ -1,11 +1,14 @@
 /* Copyright (C) 2026 OP1midi. GPL-3.0-or-later with the OP-1 firmware permission (see LICENSE and NOTICE). */
 /* MM2 éditeur v6: machine à états pure (pas de rendu). Voir mm2.h.
  * Édition live (pas de mode édition) — continuité encodeurs/colonnes (bleu vert blanc rouge):
- *   bleu: rotation = curseur (16 slots, la page suit)
- *   vert: clic = type source / Shift+clic = learn on-off; rotation = n° source / Shift = canal
+ *   bleu: rotation = curseur (16 slots, la page suit); clic = mode d'affichage des notes
+ *         (numéro / anglais / solfège); Shift+clic = vider la ligne
+ *   vert: clic = type source / Shift+clic = learn MIDI on-off; rotation = n° source / Shift = canal
  *   blanc: rotation = destination + n° en liste plate (OFF, SND 1..8, TAPE 1..4, MUTE 1..4,
- *          MRK 1..32, M+, M- — les 4 tapes et les 32 markers défilent) / Shift+clic = supprimer
- *   rouge: rotation = fade de la ligne (OFF/1s/2s/8s/32s)
+ *          MRK 1..32, M+, M- — les 4 tapes et les 32 markers défilent); clic seul = sortie
+ *          du learn touche; Shift+clic = learn touche on-off (destination SND requise)
+ *   rouge: rotation = fade de la ligne (OFF/1s/2s/8s/32s) / Shift = pistes; Shift+clic = supprimer
+ * Learn armé (MIDI ou touche): aucune touche ne quitte l'éditeur (Help valide toujours).
  * Rendu côté intégration: colonnes bleu/vert/blanc/rouge alignées aux encodeurs, curseur en
  * surbrillance (fond couleur de colonne, typo noire); Shift tenu, la colonne source du curseur
  * affiche le canal; learn armé, elle affiche LRN. */
@@ -59,11 +62,18 @@ int mm2_edit_key(int code, int pressed, int shift)
     if (!open || !pressed) return 0;
     if (code == 0x00) { mm2_edit_close(1); return 1; }                 /* Help, Shift ou non: valide */
     if (exit_key(code)) {                                              /* quitte et sauvegarde toujours */
+        if (learn) return 1;               /* v6.8: learn armé, aucune touche ne quitte (Help reste
+                                            * valide: géré avant). Sortie du learn: clic blanc seul */
         mm2_edit_close(1);
         return shift ? 1 : 0;                                          /* 0: la touche agit normalement */
     }
     if (code == 0x24) { page = (uint8_t)(page ? page - 1 : 3); cur = (uint8_t)(page * 4); return 1; }
     if (code == 0x25) { page = (uint8_t)(page == 3 ? 0 : page + 1); cur = (uint8_t)(page * 4); return 1; }
+    if (code == 0x3B) {                       /* bleu: clic = affichage notes / Shift+clic = vider */
+        if (shift) mm2_edit_delete();
+        else mm2_note_disp_cycle();
+        return 1;
+    }
     if (code == 0x3C) {                       /* vert: type / Shift+clic = learn MIDI on-off */
         if (shift) { learn = learn == MM2_L_MIDI ? MM2_L_NONE : MM2_L_MIDI; return 1; }
         if (learn == MM2_L_MIDI) { learn = MM2_L_NONE; return 1; }   /* clic seul: sortie du learn */

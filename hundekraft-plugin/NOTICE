@@ -51,6 +51,20 @@ INSTALL
   managed by the workshop. Save a disk-mode backup first (see install-recuperation.md in the repository).
 
 CHANGES
+- v6.8 (2026-10-28): hardware-confirmed v6.7 (pictograms GONE — the firmware glyph/icon atlas
+  theory was right; midi learn and key learn work). Three changes:
+  (1) KEY LEARN NO LONGER EXITS: with any learn armed (midi or key), no key quits the editor
+  (they are swallowed). Escape routes stay: Help validates+closes, white click alone exits
+  key learn, Shift+green toggles midi learn. Before this, an accidental mode/transport key
+  during the learn window closed the whole editor.
+  (2) BLUE CLICK = CLEAR SLOT (Shift+blue click empties the row, same as Shift+red) and
+  plain blue click cycles the NOTE DISPLAY MODE, global, persisted as 'mmnd': raw number
+  (60) -> english (C#4) -> french solfege (DO#4) -> number. The source cell of NOTE rows
+  shows the name accordingly; a toast shows the mode with the cursor row's note as sample.
+  (3) LOWERCASE WHERE POSSIBLE: the kennel stroke font has capitals only, so units are drawn
+  as SMALL CAPS (half height, baseline-aligned): the shift-held channel shows "ch n" and the
+  fade cell shows "1s/2s/8s/32s"; fade toasts are now true lowercase ("fade 1s" — the toast
+  font is the firmware's). Stale v7 header (knob roles) corrected.
 - v6.7 (2026-10-28): SHIFT CONFIRMED on hardware (v6.6 fix works). Three changes:
   (1) Learn feedback toasts (user request): "midi learn" / "key learn" / "learn off" on
   arming/disarm, "cc N" / "note N" / "pc N" when a MIDI message is captured, "touche N" when

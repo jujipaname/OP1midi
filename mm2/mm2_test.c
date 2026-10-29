@@ -222,8 +222,15 @@ int main(void)
     mm2_load();
     assert(mm2_row_get(0)->dst == MM2_D_OFF && fake_get("mmv", -1) == MM2_FMT);
     for (int i = 0; i < MM2_ROWS; i++) assert(mm2_row_get(i)->dst == MM2_D_OFF);
+    mm2_note_disp_cycle(); assert(mm2_note_disp() == 1);   /* 'mmnd' persiste indépendamment */
+    mm2_note_disp_cycle(); assert(mm2_note_disp() == 2);
+    mm2_save();
+    mm2_load();
+    assert(mm2_note_disp() == 2);
+    mm2_note_disp_cycle(); assert(mm2_note_disp() == 0);
 
-    /* ---- éditeur v6: bleu=curseur, vert=source+canal+learn, blanc=destination+key-learn+delete, rouge=fade ---- */
+    /* ---- éditeur v8: bleu=curseur+clic notes+Shift vider, vert=source+canal+learn MIDI,
+     * blanc=destination+learn touche, rouge=fade(+pistes)+Shift supprimer ---- */
     reset();
     mm2_edit_open();
     A2(mm2_edit_view() && mm2_edit_cursor()==0 && mm2_edit_learn_state()==MM2_L_NONE, "éditeur ouvert");
@@ -277,7 +284,31 @@ int main(void)
        "Shift+clic rouge: ligne supprimée (tout à zéro)");
     mm2_edit_key(0x3E,1,0);                                /* release: avalée */
     A2(mm2_edit_key(0x3E,1,0)==1&&mm2_edit_view(),"rouge clic sans shift: consommé (rien sans shift)");
-    A2(mm2_edit_key(0x3B,1,0)==0&&mm2_edit_view(),"bleu clic sans shift: 0 (la glue avale)");
+    /* clic bleu: mode d'affichage des notes (numéro -> anglais -> solfège -> numéro) */
+    A2(mm2_edit_key(0x3B,1,0)==1&&mm2_edit_view()&&mm2_note_disp()==1,"bleu clic: numéro->anglais");
+    A2(!strcmp(mm2_note_name(61),"C#4")&&!strcmp(mm2_note_name(60),"C4")&&!strcmp(mm2_note_name(0),"C-1")&&
+       !strcmp(mm2_note_name(127),"G9"),"anglais: C#4 C4 C-1 G9");
+    A2(mm2_edit_key(0x3B,1,0)==1&&mm2_note_disp()==2,"bleu clic: anglais->solfège");
+    A2(!strcmp(mm2_note_name(61),"DO#4")&&!strcmp(mm2_note_name(50),"RE3")&&!strcmp(mm2_note_name(44),"SOL#2")&&
+       !strcmp(mm2_note_name(23),"SI0"),"solfège: DO#4 RE3 SOL#2 SI0");
+    A2(mm2_edit_key(0x3B,1,0)==1&&mm2_note_disp()==0,"bleu clic: solfège->numéro");
+    A2(!strcmp(mm2_note_name(61),"61"),"numéro: 61");
+    /* Shift+clic bleu: vider la ligne */
+    mm2_row_edit(0)->dst = MM2_D_SND; mm2_row_edit(0)->dnum = 3; mm2_row_edit(0)->stype = MM2_S_CC;
+    mm2_row_edit(0)->snum = 40; mm2_row_edit(0)->ch = 5; mm2_row_edit(0)->fade = 2;
+    A2(mm2_edit_key(0x3B,1,1)==1&&mm2_row_get(0)->dst==MM2_D_OFF&&mm2_row_get(0)->snum==0&&
+       mm2_row_get(0)->ch==0&&mm2_row_get(0)->fade==0,"Shift+clic bleu: ligne vidée");
+    /* learn armé: aucune touche ne quitte l'éditeur (v6.8); clic blanc seul sort du learn */
+    mm2_edit_turn(2,1*MM2_DETENT,0);
+    A2(mm2_row_get(0)->dst==MM2_D_SND&&mm2_row_get(0)->dnum==1,"ligne réassignée: SND 1");
+    mm2_edit_key(0x3D,1,1); A2(mm2_edit_learn_state()==MM2_L_KEY,"key learn armé");
+    A2(mm2_edit_key(0x01,1,0)==1&&mm2_edit_view()&&mm2_edit_learn_state()==MM2_L_KEY,"learn: SYNTH avalé");
+    A2(mm2_edit_key(0x21,1,0)==1&&mm2_edit_view()&&mm2_edit_learn_state()==MM2_L_KEY,"learn: play avalé");
+    A2(mm2_edit_key(0x06,1,0)==1&&mm2_edit_view()&&mm2_edit_learn_state()==MM2_L_KEY,"learn: T1 avalé");
+    mm2_edit_key(0x3D,1,0); A2(mm2_edit_learn_state()==MM2_L_NONE,"clic blanc seul: sortie du learn");
+    mm2_edit_key(0x3C,1,1); A2(mm2_edit_learn_state()==MM2_L_MIDI,"learn MIDI armé");
+    A2(mm2_edit_key(0x04,1,0)==1&&mm2_edit_view()&&mm2_edit_learn_state()==MM2_L_MIDI,"learn MIDI: TAPE avalé");
+    mm2_edit_key(0x3C,1,0); A2(mm2_edit_learn_state()==MM2_L_NONE,"learn MIDI désarmé");
     A2(mm2_edit_key(0x25,1,0)==1&&mm2_edit_view(),"flèche droite en éditeur: page suivante");
     A2(mm2_edit_key(0x24,1,0)==1&&mm2_edit_page()==0,"flèche gauche: page 1");
     A2(mm2_edit_key(0x00,1,0)==1&&!mm2_edit_view(),"Help: ferme (consommé)");

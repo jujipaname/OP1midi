@@ -1,6 +1,7 @@
 /* Copyright (C) 2026 OP1midi. GPL-3.0-or-later with the OP-1 firmware permission (see LICENSE and NOTICE). */
 /* MM2 noyau v3: 16 lignes (source NOTE/CC/PC -> destination SND/TAPE/MUTE/MRK/M+/M-), dispatch,
- * gardes, actions via hooks, persistance versionnée ('mmv'), canal 'mmch', fade 'mmfade'.
+ * gardes, actions via hooks, persistance versionnée ('mmv'), canal 'mmch', fade 'mmfade',
+ * affichage des notes 'mmnd' (numéro / anglais / solfège).
  * Voir mm2.h pour le contrat complet. Aucune dépendance: l'intégration fournit
  * mm2_setting_get/put, mm2_act_*, mm2_env_query. */
 #include "mm2.h"
@@ -8,6 +9,7 @@
 static mm2_row rows[MM2_ROWS];
 static uint8_t mm_en = 1;
 static uint8_t prev[MM2_ROWS];             /* dernière valeur CC par ligne (front) */
+static uint8_t note_disp;                  /* affichage des notes ('mmnd'): 0 numéro, 1 anglais, 2 solfège */
 
 /* ABI d'intégration: définies ici, assignées par l'hôte au démarrage (mm2.h) */
 int  (*mm2_setting_get)(const char *key, int dflt);
@@ -64,6 +66,8 @@ void mm2_load(void)
         for (int i = 0; i < MM2_ROWS; i++) mm2_setting_put(rowkeys[i], 0);
     }
     mm_en = mm2_setting_get("mmen", 1) ? 1 : 0;
+    int nd = mm2_setting_get("mmnd", 0);
+    note_disp = nd == 1 || nd == 2 ? (uint8_t)nd : 0;
     for (int i = 0; i < MM2_ROWS; i++) {
         rows[i] = mm2_row_unpack(mm2_setting_get(rowkeys[i], 0));
         prev[i] = 0;
@@ -75,12 +79,41 @@ void mm2_save(void)
     if (!mm2_setting_put) return;
     mm2_setting_put("mmv", MM2_FMT);
     mm2_setting_put("mmen", mm_en);
+    mm2_setting_put("mmnd", note_disp);
     for (int i = 0; i < MM2_ROWS; i++) mm2_setting_put(rowkeys[i], mm2_row_pack(&rows[i]));
 }
 
 int mm2_enabled(void) { return mm_en; }
 void mm2_enable(int on) { mm_en = on ? 1 : 0; }
 /* canal et fade sont maintenant PAR LIGNE (mm2_row.ch / mm2_row.fade) */
+
+/* ---- affichage des notes ('mmnd'): 0 numéro, 1 anglais (C#4), 2 solfège (DO#4) ---- */
+static const char *const nn_en[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+static const char *const nn_fr[12] = { "DO", "DO#", "RE", "RE#", "MI", "FA", "FA#", "SOL", "SOL#", "LA", "LA#", "SI" };
+
+int mm2_note_disp(void) { return note_disp; }
+void mm2_note_disp_cycle(void) { note_disp = note_disp >= 2 ? 0 : (uint8_t)(note_disp + 1); }
+
+const char *mm2_note_name(int note)                        /* rendu selon le mode courant */
+{
+    static char b[8];
+    char *e = b;
+    if (note < 0) note = 0;
+    if (note > 127) note = 127;
+    if (!note_disp) {                                      /* numéro brut */
+        if (note >= 100) *e++ = (char)('0' + note / 100);
+        if (note >= 10) *e++ = (char)('0' + note / 10 % 10);
+        *e++ = (char)('0' + note % 10);
+    } else {
+        const char *n = (note_disp == 1 ? nn_en : nn_fr)[note % 12];
+        while (*n) *e++ = *n++;
+        int oct = note / 12 - 1;                           /* C-1 .. G9 (pitch scientifique) */
+        if (oct < 0) { *e++ = '-'; oct = -oct; }
+        *e++ = (char)('0' + oct);
+    }
+    *e = 0;
+    return b;
+}
 
 void mm2_dnum_range(int dst, int *lo, int *hi)
 {
