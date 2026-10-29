@@ -346,23 +346,27 @@ Reste : choix de police (propositions faites), test matériel, README utilisateu
 
 Reste : test matériel (rendu de la police native, key learn), README utilisateur.
 
-## 21. v6.7 — Shift suivi par événements (28 octobre 2026)
+## 21. v6.7 — learn visibles, key learn expliqué, pictos attaqués (28 octobre 2026)
 
-Le pass-through v6.6 n'a pas suffi (learn jamais armé, sur aucune version). L'octet stock
-0x01DD7F78 n'a jamais été observé à 1 sur notre chemin, alors que les événements 0x26+/0x26-
-arrivent toujours (klog v6.5). Décision: **ne plus dépendre de l'octet du tout** — `sh_held`
-est mis à jour par les événements Shift eux-mêmes, quelle que soit la page (le tracking est
-avant le test de vue), et 0x26 continue de traverser vers le stock.
-- Les toasts de diag v6.6 sont retirés; retour visuel par la page elle-même (colonne du
-  curseur = canal quand Shift tenu, "lrn" quand learn armé).
-- Pictos coin haut-gauche: théorie = churn de l'atlas glyphes/icônes du firmware déclenché
-  par les chaînes firmware-Text qui changent vite (les toasts par touche étaient la source
-  majeure). Retrait des toasts = source principale supprimée. Si les pictos persistent:
-  v6.8 passe les cellules dynamiques en sf_text (police vectorielle kennel, zéro atlas).
-- knl 16 032 o, 0 warning. mm2_test ok (core inchangé).
+v6.6 confirmée sur hardware: Shift fonctionne (canal + midi learn accessibles). Restaient:
+key learn muet, pictos coin haut-gauche, toasts de diag à trier (demandes user).
 
-Reste: test hardware v6.7 (Shift+clic vert arme lrn, Shift+rouge supprime, Shift+rotation
-blanche = fade), pictos si persistent, README utilisateur.
+1. **Key learn « rien »** : ce n'est pas un bug d'armement — `mm2_edit_learn_feed` met
+   `dst = MM2_D_TAPE` sur une ligne vide, et Shift+blanc **refuse silencieusement** hors
+   SND (`mm2_edit_key`, garde `dst == MM2_D_SND`). Le user avait fait un midi learn (dst
+   TAPE) puis testé le key learn sur la même ligne. Fix: toast **« key: snd requis »**.
+2. **Toasts de learn** (demande user: garder pour midi ET key): armement « midi learn » /
+   « key learn » / « learn off », captures « cc N » / « note N » / « pc N » / « touche N ».
+   Les toasts de diag (`k…`, `shift s…`) sont retirés.
+3. **Pictos** : théorie = atlas partagé glyphes+icônes du firmware qui transparaît quand les
+   objets Text R246 rasterisent de nouveaux glyphes (34 objets, chaînes changeant à chaque
+   touche depuis les diag v5/v6). L'éditeur passe **entièrement** en police vectorielle
+   kennel (`sf_text`, majuscules): 0 objet Text firmware (bss 6592 → 336 o). Si un picto
+   survit → hypothèse fausse, on passera au voile/panneau.
+- **`op1midi.knl` v6.7** : 17 460 o (text 8400, rodata 2396), 17 imports, 0 warning.
+  mm2_test ok.
+
+Reste: test hardware v6.7 (key learn sur ligne SND, pictos), README utilisateur.
 
 
 ## 20. v6.6 — fix Shift: l'éditeur modal avalait l'appui Shift (28 octobre 2026)

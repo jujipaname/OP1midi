@@ -51,16 +51,19 @@ INSTALL
   managed by the workshop. Save a disk-mode backup first (see install-recuperation.md in the repository).
 
 CHANGES
-- v6.7 (2026-10-28): Shift is now tracked BY ITS OWN KEY EVENTS (0x26 press/release) instead
-  of the stock shift byte. The v6.6 pass-through did not help on hardware (learn never armed
-  on any version), and the byte at 0x01DD7F78 has never been observed as 1 on our path — so
-  we no longer depend on it at all. The event log proved 0x26+/0x26- always arrive at the
-  plugin (even on other pages), so sh_held is set from those events wherever the page is,
-  and 0x26 still passes through to the stock. The v6.6 diagnostic toasts are removed — the
-  page's own UI shows the state (cursor row shows the channel while Shift is held, "lrn"
-  when learn is armed). If the residual pictograms at the top-left remain after this (the
-  per-key toasts were the main glyph-churn source), the next step moves all dynamic cell
-  text to the kennel stroke font (sf_text).
+- v6.7 (2026-10-28): SHIFT CONFIRMED on hardware (v6.6 fix works). Three changes:
+  (1) Learn feedback toasts (user request): "midi learn" / "key learn" / "learn off" on
+  arming/disarm, "cc N" / "note N" / "pc N" when a MIDI message is captured, "touche N" when
+  a sound key is captured, and "key: snd requis" when Shift+white is pressed on a row whose
+  destination is not SND (key learn requires SND — this silent refusal is why key learn
+  seemed dead: mm2_edit_learn_feed defaults empty rows to TAPE). The per-key "k..." and
+  "shift s..." diagnostics are removed.
+  (2) PICTOGRAMS: the residual icons at the top-left (mixer/fx/drum/ADSR-like) are the
+  firmware's shared glyph+icon atlas flashing through while the R246 Text objects rasterize
+  new glyphs — our editor kept re-set strings on 34 native text objects. The editor now
+  draws ALL text with the kennel's stroke font (sf_text, uppercase) — zero firmware Text
+  objects (bss 6592 -> 336 bytes). If any pictogram survives this, the theory is wrong and
+  we look at the veil/panel next.
 - v6.6 (2026-10-28): SHIFT FIX. The on-device key log proved the Shift key itself (code 0x26)
   reaches the plugin — but our editor is modal and swallowed the Shift press too. The stock
   dispatch (KEY_DISPATCH) runs AFTER the features' input filter and is what latches the stock

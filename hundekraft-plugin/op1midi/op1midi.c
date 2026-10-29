@@ -4,20 +4,21 @@
  * Entree: Shift + Help (mode clock) -> T3 (settings) -> rangée "MIDI MAP" (op1_switch
  * enregistré au 1er OP1_EV_SERVICE après le BOOT_DONE (après midiseq): 2e rangée = blanche):
  * tourner = ON/OFF global, appui blanc = ouvre l'éditeur.
- * Éditeur v4 (overlay modal sur voile + panneau noir):
- *   bleu: clic = type source (NOTE/CC/PC); Shift+clic = learn ON/OFF; rotation = n° source;
- *         Shift+rotation = canal global (la colonne type du curseur affiche CH n / ALL / OFF
- *         tant que Shift est tenu; learn armé, elle affiche LRN)
- *   vert: rotation = destination + n° en liste plate (OFF, SND 1..8, TAPE 1..4, MUTE 1..4,
- *         MRK 1..32, M+, M-)
- *   blanc: rotation = fade OFF/1s/2s/8s/32s (toast de confirmation, plus d'affichage permanent)
+ * Éditeur v7 (overlay modal sur voile + panneau noir, police vectorielle kennel, majuscules):
+ *   bleu: rotation = n° source; Shift+rotation = canal global (la colonne source du curseur
+ *         affiche CH n / ALL tant que Shift est tenu; learn armé, elle affiche LRN)
+ *   vert: clic = type source (NOTE/CC/PC); Shift+clic = learn MIDI on/off (toast); rotation =
+ *         destination + n° en liste plate (OFF, SND 1..8, TAPE 1..4, MUTE 1..4, MRK 1..32, M+, M-)
+ *   blanc: rotation = fade OFF/1s/2s/8s/32s (toast); Shift+clic = learn touche on/off
+ *         (toast; la destination doit être SND, sinon toast « snd requis »); clic seul = sortie
  *   rouge: rotation = curseur (16 slots, la page suit); Shift+clic = supprimer la ligne
  *   fleches = pages; sorties (sauvegarde systématique): Help (Shift ou non), touches de mode /
- *   T1..T4 / transport (la touche agit ensuite sauf Shift tenu). Curseur en rouge, colonnes aux
- *   couleurs des encodeurs.
+ *   T1..T4 / transport (la touche agit ensuite sauf Shift tenu). Toasts de learn (armement et
+ *   capture) pour suivre l'état. Curseur en rouge, colonnes aux couleurs des encodeurs.
  *
  * Sources: NOTE (note-on vel > 0; note-off mappée avalée via le pipeline), CC (front >= 64),
- * PC (chaque message). Destinations: SOUND 1..8 (learn par touche: Shift+clic bleu arme, la
+ * PC (chaque message). Destinations: SOUND 1..8 (learn par touche: Shift+clic blanc arme — la
+ * destination de la ligne doit être SND, sinon refus annoncé par toast — la
  * prochaine touche sound T1..T4 / Shift+T1..T4 est capturée; replay par injection de touches
  * synthétiques dans la file stock — SYNTH puis Shift+T_n, adresses R246 0x01DD5044/0x01DD5244
  * /0x01DD5248/0x01DD524D, réveil 0x019C2F04, pattern op1r midi/mx.c), TAPE 1..4
@@ -40,12 +41,17 @@
 #include "../../op1_feature_tape.h"
 #include "../../op1_feature_seq.h"
 #include "mm2.h"
+#include "../../screens/stroke_font.h"          /* police vectorielle kennel: cellules dynamiques
+                                                 * (la police firmware native laissait des résidus
+                                                 * d'atlas glyphes+icônes visibles, cf NOTICE v6.7) */
 
 #define FEAT "op1midi"
 
 static void wire(void);
 static void mute_toggle(int track);              /* définie plus bas (drain l'utilise) */
 static char *put_str(char *e, const char *s);    /* définie plus bas (overlay) */
+static char *put_num(char *e, int v);            /* définie plus bas (overlay) */
+#define MM_SHIFT  (*(volatile uint8_t *)0x01DD7F78)   /* octet Shift stock R246 (markers.c) */
 
 /* ---- ABI mm2 -> réglages kennel (espace de noms du plugin) ---- */
 static int mm_get(const char *k, int d) { return (int)op1_setting_get(FEAT, k, (int32_t)d); }
@@ -320,9 +326,18 @@ static void midi_raw(const uint8_t *m, int len)
     int st = m[0] & 0xF0;
     if (mm2_edit_learn_state() == MM2_L_KEY) return;   /* learn touche: le MIDI passe sans capture */
     if (mm2_edit_learn_state() == MM2_L_MIDI) {        /* learn MIDI: le premier NOTE/CC/PC est capturé */
-        if (st == 0xB0 && len >= 3) { mm2_edit_learn_feed(MM2_S_CC, m[1]); op1_midi_take_cc(m[1], 1); takes_dirty = 1; }
-        else if (st == 0xC0) mm2_edit_learn_feed(MM2_S_PC, m[1]);
-        else if (st == 0x90 && len >= 3 && m[2] > 0) mm2_edit_learn_feed(MM2_S_NOTE, m[1]);
+        char b[8], *e;
+        if (st == 0xB0 && len >= 3) {
+            mm2_edit_learn_feed(MM2_S_CC, m[1]); op1_midi_take_cc(m[1], 1); takes_dirty = 1;
+            e = put_str(b, "cc "); put_num(e, m[1]);
+        } else if (st == 0xC0) {
+            mm2_edit_learn_feed(MM2_S_PC, m[1]);
+            e = put_str(b, "pc "); put_num(e, m[1]);
+        } else if (st == 0x90 && len >= 3 && m[2] > 0) {
+            mm2_edit_learn_feed(MM2_S_NOTE, m[1]);
+            e = put_str(b, "note "); put_num(e, m[1]);
+        } else return;
+        op1_toast(b);                                 /* v6.7: feedback learn (demande user) */
         return;
     }
     if (st == 0xB0 && len >= 3) mm2_cc(m[0] & 15, m[1], m[2]);
@@ -360,13 +375,7 @@ static uint64_t seen_down;
 static int input(const op1_input *in)
 {
     wire();
-    if (in->type == OP1_IN_KEY && in->code == 0x26) {
-        sh_held = in->pressed;                   /* v6.7: Shift suivi par SES événements (0x26+/0x26-),
-                                                  * quelle que soit la page — l'octet stock 0x01DD7F78
-                                                  * n'a jamais été fiable sur notre chemin (klog: 26+/26-
-                                                  * arrivent, l'octet reste à 0). Plus aucune dépendance. */
-        return 0;                                /* traverse: le stock tient son propre état */
-    }
+    sh_held = MM_SHIFT;                          /* octet Shift stock (fiable sur hardware) */
     if (in->type == OP1_IN_KEY) {
         if (!mm2_edit_view()) {
             if (in->code == 0x3D && in->pressed && in->mode == 0x0C && !op1_text_entry_open()) {
@@ -376,25 +385,41 @@ static int input(const op1_input *in)
             }
             return 0;
         }
+        if (in->code == 0x26) {                  /* Shift: NE PAS avaler — tant que l'éditeur est
+                                                  * modal, le stock ne voyait jamais l'appui Shift et
+                                                  * ne mettait pas son octet à 1: les combos arrivaient
+                                                  * avec shift=0 (v6.2..v6.5). Le laisser passer. */
+            return 0;
+        }
         if (in->pressed) seen_down |= (uint64_t)1 << (in->code & 63);
         else if (!(seen_down >> (in->code & 63) & 1)) return 0;   /* release tenue avant l'ouverture */
         seen_down &= ~((uint64_t)1 << (in->code & 63));
         if (mm2_edit_learn_state() == MM2_L_KEY && in->pressed && in->code >= 0x06 && in->code <= 0x09) {
-            mm2_edit_learn_feed_key(in->code - 0x05 + (sh_held ? 4 : 0));   /* touche sound apprise */
-            log_key_learn("touche sound -> slot");
-            return 1;                                 /* avalée: rien ne bouge pendant l'apprentissage */
+            int slot = in->code - 0x05 + (in->shift ? 4 : 0);
+            mm2_edit_learn_feed_key(slot);        /* touche sound apprise */
+            char b[10], *e = put_str(b, "touche ");
+            put_num(e, slot);
+            op1_toast(b);                         /* v6.7: feedback learn (demande user) */
+            return 1;                             /* avalée: rien ne bouge pendant l'apprentissage */
         }
         if (mm2_edit_learn_state() == MM2_L_KEY && in->pressed)
             log_key_learn("touche enregistrée");      /* toutes les touches sont tracées */
         int was = mm2_edit_view();
-        int consumed = mm2_edit_key(in->code, in->pressed, sh_held);
+        int l0 = mm2_edit_learn_state();
+        int consumed = mm2_edit_key(in->code, in->pressed, MM_SHIFT);
+        int l1 = mm2_edit_learn_state();
+        if (l1 != l0)                             /* v6.7: transition de learn en toast */
+            op1_toast(l1 == MM2_L_MIDI ? "midi learn" : l1 == MM2_L_KEY ? "key learn" : "learn off");
+        else if (l1 == MM2_L_NONE && in->pressed && in->code == 0x3D && MM_SHIFT &&
+                 mm2_row_get(mm2_edit_cursor())->dst != MM2_D_SND)
+            op1_toast("key: snd requis");         /* Shift+blanc hors SND: expliquer le refus */
         if (was) takes_dirty = 1;                                 /* fermeture ou suppression: re-appliquer */
         if (!consumed && was && mm2_edit_view()) return 1;        /* toujours ouvert: modal */
         return consumed;                                          /* 0: sortie, la touche agit */
     }
     if (mm2_edit_view()) {
         int f0 = mm2_row_get(mm2_edit_cursor())->fade;
-        mm2_edit_turn(in->code, in->delta, sh_held);
+        mm2_edit_turn(in->code, in->delta, MM_SHIFT);
         if (in->type == OP1_IN_KNOB && in->code == 2 && mm2_row_get(mm2_edit_cursor())->fade != f0) {
             static const char *const fn[] = { "FADE OFF", "FADE 1S", "FADE 2S", "FADE 8S", "FADE 32S" };
             op1_toast(fn[mm2_row_get(mm2_edit_cursor())->fade]);
@@ -409,23 +434,12 @@ static int input(const op1_input *in)
 static const uint8_t c_red[4] = { 0xFF, 0x4E, 0x3F, 0xFF }, c_white[4] = { 0xFF, 0xFF, 0xFF, 0xFF },
                      c_green[4] = { 0x00, 0xED, 0x95, 0xFF }, c_black[4] = { 0, 0, 0, 0xFF },
                      c_blue[4] = { 0x4D, 0x9E, 0xFF, 0xFF };
-static const uint8_t *stCol_v;                   /* couleur de la colonne type (contextuelle) */
-#define ES   OP1_Q10(5) / 2
-#define EW   0x600
-#define X_SL OP1_Q10(8)                            /* n° de slot (rouge) */
-#define X_ST OP1_Q10(34)                           /* type source (bleu) */
-#define X_SN OP1_Q10(90)                           /* n° source (bleu) */
-#define X_DST OP1_Q10(140)                         /* destination + n° (vert) */
-#define X_CH OP1_Q10(240)                          /* canal de la ligne (blanc) */
-#define Y_T  OP1_Q10(10)
-#define Y0   OP1_Q10(40)
-#define DY   OP1_Q10(26)
-#define Y0_PX 42
-#define DY_PX 24
 #define PN_X0 6
 #define PN_X1 314
 #define PN_Y0 4
 #define PN_Y1 156
+#define Y0_PX 42                                   /* première ligne de cellules (px) */
+#define DY_PX 24                                   /* pas vertical des cellules (px) */
 
 typedef struct { uint16_t *px; uint32_t w, stride, h; } mm_raster;
 static void mm_fade(void *r)
@@ -463,9 +477,9 @@ static char *put_num(char *e, int v)                       /* 0..255 */
     return e;
 }
 
-static const char *const st_names[] = { "note", "cc", "pc" };
-static const char *const dst_names[] = { "--", "snd", "tape", "mut", "mrk", "m+", "m-" };
-static const char *const fade_names[] = { "off", "1s", "2s", "8s", "32s" };
+static const char *const st_names[] = { "NOTE", "CC", "PC" };
+static const char *const dst_names[] = { "--", "SND", "TAPE", "MUT", "MRK", "M+", "M-" };
+static const char *const fade_names[] = { "OFF", "1S", "2S", "8S", "32S" };
 static const char *dstTextOfRow(const mm2_row *w)          /* "mrk 11" / "snd 3" / "--" */
 {
     static char b[12];
@@ -480,42 +494,15 @@ static const char *dstTextOfRow(const mm2_row *w)          /* "mrk 11" / "snd 3"
 static const char *rowChDisp(const mm2_row *w)             /* canal de la ligne */
 {
     int ch = w->ch ? w->ch : MM2_CH_ALL;                   /* 0 = non réglé: ALL */
-    if (ch == MM2_CH_ALL) return "all";
+    if (ch == MM2_CH_ALL) return "ALL";
     static char b[6];
-    char *e = put_str(b, "ch ");
+    char *e = put_str(b, "CH ");
     put_num(e, ch);
     return b;
 }
 
-/* ---- police native R246 (objets Text du firmware, minuscules OK) ---- */
-typedef struct { uint32_t mem[OP1_TEXT_SIZE / 4]; char last[16]; uint8_t made; } mm_txt;
-static mm_txt mm_t_title, mm_t_page, mm_t_cell[4][4][2];   /* [ligne][colonne], {colorée, noire} */
-static const int32_t mm_ident[9] = { 1024, 0, 0, 0, 1024, 0, 0, 0, 1024 };
-static uint8_t mm_txt_made;
-
-static void mm_txt_make(void)                    /* Gfx thread, première frame de l'éditeur */
-{
-    static const int xs[4] = { 10, 36, 142, 242 };
-    static const uint8_t *const cols[4] = { c_blue, c_green, c_white, c_red };
-    op1_text_ctor(&mm_t_title.mem, OP1_Q10(8), 11, 12, c_white);
-    op1_text_set(&mm_t_title, "MIDI MAP");
-    op1_text_ctor(&mm_t_page.mem, OP1_Q10(284), 11, 12, c_white);
-    for (int k = 0; k < 4; k++)
-        for (int c = 0; c < 4; c++)
-            for (int v = 0; v < 2; v++)
-                op1_text_ctor(&mm_t_cell[k][c][v].mem, OP1_Q10(xs[c]), Y0_PX + k * DY_PX, 12,
-                              v ? c_black : cols[c]);
-    mm_txt_made = 1;
-}
-
-static void mm_txt_draw(mm_txt *t, void *r, const char *str)
-{
-    int n = 0;
-    while (t->last[n] && str[n] && t->last[n] == str[n]) n++;
-    if (t->last[n] != str[n]) { op1_text_set(&t->mem, str);
-      char *e = t->last; while (*str) *e++ = *str++; *e = 0; }
-    op1_text_draw(&t->mem, r, mm_ident);
-}
+/* ---- cellules: police vectorielle kennel (majuscules uniquement) ---- */
+#define SF_S OP1_Q10(2)                              /* 6 unités × 2 = 12 px de haut */
 
 static void mm_cell(void *r, int x0, int x1, int y, const uint8_t *c)   /* fond de cellule (surbrillance) */
 {
@@ -529,21 +516,21 @@ static void overlay(void *r, int32_t screen)
 {
     (void)screen;
     if (!mm2_edit_view()) return;
-    if (!mm_txt_made) mm_txt_make();               /* Gfx thread: objets Text natifs */
     mm_fade(r);
     mm_panel(r);
     int page = mm2_edit_page(), cur = mm2_edit_cursor();
-    mm_txt_draw(&mm_t_title, r, "MIDI MAP");
-    char b[14];
-    char *e = put_str(b, "p");
+    sf_text(r, OP1_Q10(8), OP1_Q10(11), SF_S, "MIDI MAP", 0x600, c_white);
+    char b[8];
+    char *e = put_str(b, "P");
     e = put_num(e, page + 1);
     put_str(e, "/4");
-    mm_txt_draw(&mm_t_page, r, b);
+    sf_text(r, OP1_Q10(272), OP1_Q10(11), SF_S, b, 0x600, c_white);
+    static const int xs[4] = { 10, 36, 142, 242 };
+    static const uint8_t *const cols[4] = { c_blue, c_green, c_white, c_red };
     for (int k = 0; k < 4; k++) {
         int i = page * 4 + k;
         const mm2_row *w = mm2_row_get(i);
         int cur_ = i == cur;
-        int blk = cur_;                            /* ligne curseur: typo noire sur fond couleur */
         int y = Y0_PX + k * DY_PX;
         if (cur_) {                                /* surbrillance: fond = couleur de colonne */
             mm_cell(r, 5, 32, y, c_blue);
@@ -552,18 +539,19 @@ static void overlay(void *r, int32_t screen)
             mm_cell(r, 138, 236, y, c_white);
             mm_cell(r, 236, 314, y, c_red);
         }
+        const uint8_t *tc = cur_ ? c_black : cols[0];
         char n[4];
         put_num(n, i + 1);
-        mm_txt_draw(&mm_t_cell[k][0][blk], r, n);
-        char s[14];                                    /* source fusionnée: "cc 80" / "lrn" / "ch 5" */
-        char *se = put_str(s, st_names[w->stype]);
-        if (i == cur && mm2_edit_learn_state() != MM2_L_NONE) se = put_str(s, "lrn");
+        int yq = OP1_Q10(y);
+        sf_text(r, OP1_Q10(xs[0]), yq, SF_S, n, 0x600, tc);
+        char s[14]; char *se;
+        if (i == cur && mm2_edit_learn_state() != MM2_L_NONE) se = put_str(s, "LRN");
         else if (i == cur && sh_held) se = put_str(s, rowChDisp(w));
-        else { *se++ = ' '; se = put_num(se, w->snum); }
+        else { se = put_str(s, st_names[w->stype]); *se++ = ' '; se = put_num(se, w->snum); }
         *se = 0;
-        mm_txt_draw(&mm_t_cell[k][1][blk], r, s);
-        mm_txt_draw(&mm_t_cell[k][2][blk], r, dstTextOfRow(w));
-        mm_txt_draw(&mm_t_cell[k][3][blk], r, fade_names[w->fade]);
+        sf_text(r, OP1_Q10(xs[1]), yq, SF_S, s, 0x600, cur_ ? c_black : cols[1]);
+        sf_text(r, OP1_Q10(xs[2]), yq, SF_S, dstTextOfRow(w), 0x600, cur_ ? c_black : cols[2]);
+        sf_text(r, OP1_Q10(xs[3]), yq, SF_S, fade_names[w->fade], 0x600, cur_ ? c_black : cols[3]);
     }
 }
 
