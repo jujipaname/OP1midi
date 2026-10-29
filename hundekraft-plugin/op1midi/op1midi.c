@@ -46,6 +46,7 @@
 static void wire(void);
 static void mute_toggle(int track);              /* définie plus bas (drain l'utilise) */
 static char *put_str(char *e, const char *s);    /* définie plus bas (overlay) */
+static char *put_hex2(char *e, int v);           /* définie plus bas (overlay) */
 #define MM_SHIFT  (*(volatile uint8_t *)0x01DD7F78)   /* octet Shift stock R246 (markers.c) */
 
 /* ---- ABI mm2 -> réglages kennel (espace de noms du plugin) ---- */
@@ -55,14 +56,6 @@ static void mm_put(const char *k, int v) { op1_setting_set(FEAT, k, v); }
 /* ---- état suivi ---- */
 static volatile uint8_t cur_mode;                /* OP1_EV_MODE / op1_input.mode */
 static volatile uint8_t sh_held;                 /* Shift tenu (mis à jour à chaque événement) */
-
-/* ---- diag v6.5 (temporaire): journal des derniers événements + sources Shift ----
- * Affiché en bas de l'éditeur: S = octet 0x01DD7F78 (rendu), E = champ shift du dernier
- * événement livré, A = octet 0x019D7C6C (candidat kn_save.c), k = 6 derniers événements
- * (code hex, + = appui/haut, - = relâché/bas, v = encodeur bas; bit 80 = encodeur). */
-static struct { uint8_t code, st; } klog[8];
-static uint8_t klog_n;
-static volatile uint8_t ev_sh;
 
 /* ---- file d'actions (producteur: timer midi_raw; consommateur: main loop) ---- */
 enum { K_SND = 1, K_TAPE, K_MUTE, K_MARKER, K_MNEXT, K_MPREV };
@@ -370,14 +363,6 @@ static int input(const op1_input *in)
 {
     wire();
     sh_held = MM_SHIFT;                          /* octet Shift stock (fiable sur hardware) */
-    {                                            /* diag v6.5: journal des événements */
-        uint8_t w = klog_n;
-        klog[w & 7].code = (uint8_t)(in->code | (in->type == OP1_IN_KNOB ? 0x80 : 0));
-        klog[w & 7].st = (uint8_t)(in->type == OP1_IN_KNOB ? (in->delta < 0 ? 2 : 1)
-                                                           : (in->pressed ? 1 : 0));
-        ev_sh = in->shift;
-        klog_n = (uint8_t)(w + 1);
-    }
     if (in->type == OP1_IN_KEY) {
         if (!mm2_edit_view()) {
             if (in->code == 0x3D && in->pressed && in->mode == 0x0C && !op1_text_entry_open()) {
@@ -386,6 +371,20 @@ static int input(const op1_input *in)
                 return 1;
             }
             return 0;
+        }
+        if (in->code == 0x26) {                  /* Shift: NE PAS avaler — tant que l'éditeur est
+                                                  * modal, le stock ne voyait jamais l'appui Shift et
+                                                  * ne mettait pas son octet à 1: les combos arrivaient
+                                                  * avec shift=0 (v6.2..v6.5). Le laisser passer. */
+            op1_toast(in->pressed ? "shift s1" : "shift s0");   /* diag v6.6, retirée en v6.7 */
+            return 0;
+        }
+        if (in->pressed) {                       /* diag v6.6 (temporaire): chaque appui en toast */
+            char b[10], *e = put_str(b, "k");
+            e = put_hex2(e, in->code);
+            *e++ = (char)('0' + (sh_held != 0));
+            *e = 0;
+            op1_toast(b);
         }
         if (in->pressed) seen_down |= (uint64_t)1 << (in->code & 63);
         else if (!(seen_down >> (in->code & 63) & 1)) return 0;   /* release tenue avant l'ouverture */
@@ -508,8 +507,7 @@ static const char *rowChDisp(const mm2_row *w)             /* canal de la ligne 
 
 /* ---- police native R246 (objets Text du firmware, minuscules OK) ---- */
 typedef struct { uint32_t mem[OP1_TEXT_SIZE / 4]; char last[16]; uint8_t made; } mm_txt;
-static mm_txt mm_t_title, mm_t_page, mm_t_cell[4][4][2],   /* [ligne][colonne], {colorée, noire} */
-              mm_t_diag, mm_t_klog;                        /* diag v6.5 (temporaire) */
+static mm_txt mm_t_title, mm_t_page, mm_t_cell[4][4][2];   /* [ligne][colonne], {colorée, noire} */
 static const int32_t mm_ident[9] = { 1024, 0, 0, 0, 1024, 0, 0, 0, 1024 };
 static uint8_t mm_txt_made;
 
@@ -520,8 +518,6 @@ static void mm_txt_make(void)                    /* Gfx thread, première frame 
     op1_text_ctor(&mm_t_title.mem, OP1_Q10(8), 11, 12, c_white);
     op1_text_set(&mm_t_title, "MIDI MAP");
     op1_text_ctor(&mm_t_page.mem, OP1_Q10(284), 11, 12, c_white);
-    op1_text_ctor(&mm_t_diag.mem, OP1_Q10(10), 146, 12, c_green);
-    op1_text_ctor(&mm_t_klog.mem, OP1_Q10(142), 146, 12, c_white);
     for (int k = 0; k < 4; k++)
         for (int c = 0; c < 4; c++)
             for (int v = 0; v < 2; v++)
@@ -586,24 +582,6 @@ static void overlay(void *r, int32_t screen)
         mm_txt_draw(&mm_t_cell[k][1][blk], r, s);
         mm_txt_draw(&mm_t_cell[k][2][blk], r, dstTextOfRow(w));
         mm_txt_draw(&mm_t_cell[k][3][blk], r, fade_names[w->fade]);
-    }
-    {                                              /* diag v6.5 (temporaire) */
-        char d[20], *de = put_str(d, "S");
-        *de++ = (char)('0' + (MM_SHIFT != 0));
-        de = put_str(de, " E");
-        *de++ = (char)('0' + (ev_sh != 0));
-        de = put_str(de, " A");
-        de = put_hex2(de, *(volatile uint8_t *)0x019D7C6C);
-        *de = 0;
-        mm_txt_draw(&mm_t_diag, r, d);
-        char k[24], *ke = put_str(k, "k");
-        for (int i = (klog_n >= 6 ? klog_n - 6 : 0); i < klog_n; i++) {
-            const uint8_t code = klog[i & 7].code, st = klog[i & 7].st;
-            ke = put_hex2(ke, code);
-            *ke++ = st == 0 ? '-' : st == 1 ? '+' : 'v';
-        }
-        *ke = 0;
-        mm_txt_draw(&mm_t_klog, r, k);
     }
 }
 

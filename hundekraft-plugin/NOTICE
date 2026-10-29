@@ -51,6 +51,15 @@ INSTALL
   managed by the workshop. Save a disk-mode backup first (see install-recuperation.md in the repository).
 
 CHANGES
+- v6.6 (2026-10-28): SHIFT FIX. The on-device key log proved the Shift key itself (code 0x26)
+  reaches the plugin — but our editor is modal and swallowed the Shift press too. The stock
+  dispatch (KEY_DISPATCH) runs AFTER the features' input filter and is what latches the stock
+  shift byte (0x01DD7F78); by swallowing 0x26 we kept the byte at 0, so every Shift combo
+  arrived with shift=0 (v6.2..v6.5). Fix: pass the Shift press/release through to the stock
+  while the editor is open (0x26 is not an exit key; Shift alone does nothing in the stock).
+  Temporary confirmation toasts: "shift s1/s0" on Shift press/release and "k<hex><s>" on
+  each key press while the editor is open (removed in v6.7). The truncated bottom diag line
+  of v6.5 is removed.
 - v6.5 (2026-10-28): the v6.4 row fix works on hardware (confirmed) but Shift still does
   nothing. Static analysis says shifted keys DO reach feature input() (the hooked site is
   the common KeyHandler::process_queue dispatch, and the delivered in->shift IS the stock

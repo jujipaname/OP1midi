@@ -346,6 +346,26 @@ Reste : choix de police (propositions faites), test matériel, README utilisateu
 
 Reste : test matériel (rendu de la police native, key learn), README utilisateur.
 
+## 20. v6.6 — fix Shift: l'éditeur modal avalait l'appui Shift (28 octobre 2026)
+
+Données du user (ligne diag v6.5): Shift seul → `26+26-26+26-26+26`; Shift+clic vert →
+`26+26-26+81v3C+3C-` (le code Shift réel est bien 0x26, la livraison fonctionne, `81v` =
+légère rotation verte accidentelle). En croisant avec le core: dans key_event_hook, notre
+input() passe AVANT KEY_DISPATCH (0x019B6C74) — et notre éditeur modal avalait TOUT,
+**y compris l'appui Shift (0x26)** → le stock ne latchait jamais son octet Shift
+(0x01DD7F78) → tous les combos arrivaient avec shift=0. midiseq, non-modal, laisse passer
+0x26 → son Shift marche. Explicatif pour v6.2/v6.3/v6.4 et pour « in->shift ne marche pas ».
+
+- **Fix**: quand l'éditeur est ouvert, code 0x26 (press et release) → `return 0` (traverse
+  vers le stock). 0x26 n'est pas dans exit_key(); Shift seul ne fait rien dans le stock.
+- **Toasts temporaires** (demande user: popups plutôt qu'une ligne tronquée): `shift s1/s0`
+  à l'appui/relâché de Shift, `k<hex><s>` (s = octet au moment de l'événement) à chaque
+  appui pendant l'éditeur. Retrait prévu en v6.7.
+- Ligne diag v6.5 retirée (tronquée en bas d'écran). knl 16 284 o, 0 warning. mm2_test ok.
+
+Reste: test hardware v6.6 (combos Shift), pictos coin haut-gauche (§21), README utilisateur.
+
+
 ## 19. v6.5 — diagnostic Shift sur l'appareil (28 octobre 2026)
 
 v6.4 confirmée sur hardware (rangée MIDI MAP à la bonne place) mais le Shift reste mort.
