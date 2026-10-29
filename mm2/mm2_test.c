@@ -281,15 +281,8 @@ int main(void)
     mm2_edit_learn_feed(MM2_S_CC,44); A2(mm2_edit_learn_state()==MM2_L_NONE&&mm2_row_get(0)->snum==44&&
        mm2_row_get(0)->stype==MM2_S_CC,"learn capture CC44");
     A2(mm2_row_get(0)->dst==MM2_D_SND&&mm2_row_get(0)->ch==MM2_CH_ALL,"learn: garde dst + canal");
-    /* learn touche: Shift+clic blanc arme (dst SND), la touche brute est stockée (v7.1) */
-    mm2_edit_key(0x3D,1,1); A2(mm2_edit_learn_state()==MM2_L_KEY,"learn touche armé (Shift+clic blanc)");
-    mm2_edit_learn_feed_key_code(0x20,0);
-    A2(mm2_edit_learn_state()==MM2_L_NONE&&mm2_combo_get(0,ck)==1&&ck[0]==0x20&&
-       mm2_row_get(0)->dnum==7,"learn touche: key 0x20 stockée, dnum intact");
-    mm2_edit_key(0x3D,1,1); A2(mm2_edit_learn_state()==MM2_L_KEY,"réarmé (touche)");
-    mm2_edit_learn_feed_key_code(0x00,0); A2(mm2_edit_learn_state()==MM2_L_KEY,"Help rejeté du learn");
-    mm2_edit_learn_feed_key_code(0x3C,0); A2(mm2_edit_learn_state()==MM2_L_KEY,"encodeur rejeté du learn");
-    mm2_edit_key(0x3D,1,0); A2(mm2_edit_learn_state()==MM2_L_NONE,"clic blanc SEUL: sortie du key learn");
+    /* v7.2: touches SND en dur côté intégration — plus de learn touche */
+    mm2_edit_key(0x3D,1,1); A2(mm2_edit_learn_state()==MM2_L_NONE,"Shift+blanc sur SND: rien (en dur)");
     /* Shift+clic blanc hors SND: rien */
     mm2_edit_turn(2,-1*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_SND&&mm2_row_get(0)->dnum==6,"vert -1: SND7->SND6");
     mm2_edit_turn(2,3*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_TAPE&&mm2_row_get(0)->dnum==1,"vert +3: SND6->TAPE 1 (hors SND)");
@@ -315,14 +308,14 @@ int main(void)
     mm2_row_edit(0)->snum = 40; mm2_row_edit(0)->ch = 5; mm2_row_edit(0)->fade = 2;
     A2(mm2_edit_key(0x3B,1,1)==1&&mm2_row_get(0)->dst==MM2_D_OFF&&mm2_row_get(0)->snum==0&&
        mm2_row_get(0)->ch==0&&mm2_row_get(0)->fade==0,"Shift+clic bleu: ligne vidée");
-    /* learn armé: aucune touche ne quitte l'éditeur (v6.8); clic blanc seul sort du learn */
-    mm2_edit_turn(2,2*MM2_DETENT,0);
-    A2(mm2_row_get(0)->dst==MM2_D_SND&&mm2_row_get(0)->dnum==1,"ligne réassignée: SND 1");
-    mm2_edit_key(0x3D,1,1); A2(mm2_edit_learn_state()==MM2_L_KEY,"key learn armé");
-    A2(mm2_edit_key(0x01,1,0)==1&&mm2_edit_view()&&mm2_edit_learn_state()==MM2_L_KEY,"learn: SYNTH avalé");
-    A2(mm2_edit_key(0x21,1,0)==1&&mm2_edit_view()&&mm2_edit_learn_state()==MM2_L_KEY,"learn: play avalé");
-    A2(mm2_edit_key(0x06,1,0)==1&&mm2_edit_view()&&mm2_edit_learn_state()==MM2_L_KEY,"learn: T1 avalé");
-    mm2_edit_key(0x3D,1,0); A2(mm2_edit_learn_state()==MM2_L_NONE,"clic blanc seul: sortie du learn");
+    /* learn armé: aucune touche ne quitte l'éditeur (v6.8); clic blanc seul valide (v7.2) */
+    mm2_edit_turn(2,1*MM2_DETENT,0);
+    A2(mm2_row_get(0)->dst==MM2_D_COMBO,"ligne réassignée: COMBO");
+    mm2_edit_key(0x3D,1,1); A2(mm2_edit_learn_state()==MM2_L_COMBO,"learn combo armé");
+    A2(mm2_edit_key(0x01,1,0)==1&&mm2_edit_view()&&mm2_edit_learn_state()==MM2_L_COMBO,"learn: SYNTH avalé");
+    A2(mm2_edit_key(0x21,1,0)==1&&mm2_edit_view()&&mm2_edit_learn_state()==MM2_L_COMBO,"learn: play avalé");
+    A2(mm2_edit_key(0x06,1,0)==1&&mm2_edit_view()&&mm2_edit_learn_state()==MM2_L_COMBO,"learn: T1 avalé");
+    mm2_edit_key(0x3D,1,0); A2(mm2_edit_learn_state()==MM2_L_NONE,"clic blanc seul: validation/sortie");
     mm2_edit_key(0x3C,1,1); A2(mm2_edit_learn_state()==MM2_L_MIDI,"learn MIDI armé");
     A2(mm2_edit_key(0x04,1,0)==1&&mm2_edit_view()&&mm2_edit_learn_state()==MM2_L_MIDI,"learn MIDI: TAPE avalé");
     mm2_edit_key(0x3C,1,0); A2(mm2_edit_learn_state()==MM2_L_NONE,"learn MIDI désarmé");
@@ -377,14 +370,13 @@ int main(void)
     mm2_load();
     A2(mm2_combo_get(0,ck)==1&&ck[0]==0x89&&fake_get("mmk0",-1)==0x89,"'mmk0' persisté");
 
-    /* SND avec touche apprise: rejeu via le hook combo (v7.1), fallback slot sinon */
+    /* SND: touches en dur (v7.2) — rejeu via act_snd(slot) uniquement */
     reset();
     mm2_row_edit(0)->stype = MM2_S_CC; mm2_row_edit(0)->snum = 90; mm2_row_edit(0)->dst = MM2_D_SND;
     mm2_row_edit(0)->dnum = 3;
-    { uint8_t k1 = 0x20; mm2_combo_set(0, &k1, 1); }
-    assert(mm2_cc(0,90,127) && n_combo==1 && combo_len==1 && combo_k[0]==0x20 && n_snd==0);
-    mm2_combo_set(0,0,0);
-    assert(mm2_cc(0,90,0) && mm2_cc(0,90,127) && n_snd==1 && last_snd==3);
+    assert(mm2_cc(0,90,127) && n_snd==1 && last_snd==3 && n_combo==0);
+    { uint8_t k1 = 0x20; mm2_combo_set(0, &k1, 1); }        /* résidu de learn: ignoré pour SND */
+    assert(mm2_cc(0,90,0) && mm2_cc(0,90,127) && n_snd==2 && n_combo==0);
 
     printf("mm2_test: ok\n");
     return 0;

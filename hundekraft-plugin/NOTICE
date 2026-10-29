@@ -51,6 +51,11 @@ INSTALL
   managed by the workshop. Save a disk-mode backup first (see install-recuperation.md in the repository).
 
 CHANGES
+- v7.2 (2026-10-28): SOUND KEYS HARDCODED from the user's hardware readings (v7.1 display):
+  sound 1..8 = SYNTH then 2D 2E 2F 10 11 12 13 14 (hex). The key learn for SND is removed
+  (Shift+white only arms the COMBO learn now; the "key: snd requis" hint goes with it).
+  Replay: SYNTH press/release then the table's key for the selected slot (1..8, white knob).
+  Any leftover learned keys in rows are ignored for SND.
 - v7.1 (2026-10-28): three hardware-feedback fixes:
   (1) INTERNAL NOTES NOW TRIGGER MAPPINGS: the plugin only listened to external USB MIDI
   (midi_raw); playing the OP-1 keyboard matched rows and was swallowed SILENTLY (no action).

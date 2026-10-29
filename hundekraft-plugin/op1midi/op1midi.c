@@ -14,10 +14,10 @@
  *         TOUJOURS la source: « note 60 », « note C#4 », « cc 74 » — v7.1: plus de canal
  *         affiché); clic = type source (NOTE/CC/PC); Shift+clic = learn MIDI on/off
  *   blanc: rotation = destination + n° en liste plate (COMBO en premier, OFF, SND 1..8,
- *         TAPE 1..4, MUTE 1..4, MRK 1..32, M+, M-); clic seul = sortie du learn touche ou
- *         validation du combo; Shift+clic = learn on/off selon la destination (SND -> touche
- *         brute, COMBO -> combo: 3 touches max ± Shift, clic blanc = valider, 3e touche =
- *         validation auto; armé: le blanc affiche les touches, ex « S06 21 »)
+ *         TAPE 1..4, MUTE 1..4, MRK 1..32, M+, M-); clic seul = validation du combo;
+ *         Shift+clic = learn combo on/off (la destination doit être COMBO; 3 touches max
+ *         ± Shift, 3e touche = validation auto; armé: le blanc affiche les touches,
+ *         ex « S06 21 »)
  *   rouge: rotation = fade (OFF/1s/2s/8s/32s) / Shift+rotation = pistes du fade;
  *         Shift+clic = supprimer la ligne
  *   fleches = pages; sorties (sauvegarde systématique): Help (Shift ou non), touches de mode /
@@ -30,11 +30,9 @@
  * Sources: NOTE (note-on vel > 0, EXTERNE (USB midi) comme INTERNE (clavier de l'OP-1 — v7.1:
  * le pipeline de notes déclenche et avale); note-off mappée avalée via le pipeline), CC (front
  * >= 64), PC (chaque message). Destinations: COMBO (v7.0: séquence de 1..3 touches ± Shift
- * injectée en touches synthétiques — même file que la sélection de sound key), SOUND 1..8
- * (learn par touche v7.1: la TOUCHE BRUTE est stockée (affichée « SND 20 » / « SND S20 ») et
- * rejeuée après un SYNTH — pattern op1r midi/mx.c, adresses R246 0x01DD5044/0x01DD5244
- * /0x01DD5248/0x01DD524D, réveil 0x019C2F04; sans touche apprise: fallback SYNTH + T_{dnum}),
- * TAPE 1..4
+ * injectée en touches synthétiques), SOUND 1..8 (v7.2: touches EN DUR relevées sur hardware —
+ * SYNTH puis 2D/2E/2F/10/11/12/13/14, adresses R246 0x01DD5044/0x01DD5244
+ * /0x01DD5248/0x01DD524D, réveil 0x019C2F04, pattern op1r midi/mx.c), TAPE 1..4
  * (op1_tape_switch), MUTE 1..4 (octet mute R246 0xFF8010A0 + màj DSP 0x01967ED0), MARKER 1..32
  * (un ensemble partagé entre les tapes en 3.0.3: le n-ième marqueur, tape courante, sans
  * switch), MRK+/MRK- (saut, wrap).
@@ -265,15 +263,14 @@ static void inject_keys(const uint8_t *seq, int n)          /* seq: {code, press
 
 static void snd_inject(int slot)                 /* sélection de sound key par touches synthétiques */
 {
-    uint8_t seq[10];                             /* {code, pressed} x 5 */
+    static const uint8_t sndkeys[8] = { 0x2D, 0x2E, 0x2F, 0x10, 0x11, 0x12, 0x13, 0x14 };
+    uint8_t seq[8];
     int n = 0;
     seq[n++] = 0x02; seq[n++] = 1;               /* SYNTH press (idempotent si déjà en synth) */
-    seq[n++] = 0x02; seq[n++] = 0;               /* SYNTH release */
-    if (slot > 4) { seq[n++] = 0x26; seq[n++] = 1; }           /* Shift press (slots 5..8) */
-    int tk = 0x05 + (slot > 4 ? slot - 4 : slot);              /* T1..T4 = 0x06..0x09 */
-    seq[n++] = (uint8_t)tk; seq[n++] = 1;
-    seq[n++] = (uint8_t)tk; seq[n++] = 0;
-    if (slot > 4) { seq[n++] = 0x26; seq[n++] = 0; }           /* Shift release */
+    seq[n++] = 0x02; seq[n++] = 0;
+    int cd = sndkeys[(slot - 1) & 7];            /* v7.2: codes relevés sur hardware (user) */
+    seq[n++] = (uint8_t)cd; seq[n++] = 1;
+    seq[n++] = (uint8_t)cd; seq[n++] = 0;
     inject_keys(seq, n / 2);
 }
 
@@ -296,12 +293,8 @@ static void drain(void)                          /* main loop */
             uint8_t ck[MM2_COMBO_MAX];
             int cn = p.a >= 0 && p.a < MM2_ROWS ? mm2_combo_get(p.a, ck) : 0;
             if (cn > 0) {
-                uint8_t seq[30];
+                uint8_t seq[26];
                 int n = 0;
-                if (mm2_row_get(p.a)->dst == MM2_D_SND) {   /* sound key: en synth d'abord (op1r mx.c) */
-                    seq[n++] = 0x02; seq[n++] = 1;
-                    seq[n++] = 0x02; seq[n++] = 0;
-                }
                 for (int j = 0; j < cn; j++) {
                     int sh = ck[j] >> 7, cd = ck[j] & 0x7F;
                     if (sh) { seq[n++] = 0x26; seq[n++] = 1; }          /* Shift press */
@@ -429,16 +422,11 @@ static int input(const op1_input *in)
         else if (!(seen_down >> (in->code & 63) & 1)) return 0;   /* release tenue avant l'ouverture */
         seen_down &= ~((uint64_t)1 << (in->code & 63));
         int lb = mm2_edit_learn_state();
-        if (in->pressed && (lb == MM2_L_KEY || lb == MM2_L_COMBO)) {
-            if (lb == MM2_L_KEY) mm2_edit_learn_feed_key_code(in->code, in->shift);
-            else mm2_edit_learn_feed_combo(in->code, in->shift);
-        }
+        if (in->pressed && lb == MM2_L_COMBO)
+            mm2_edit_learn_feed_combo(in->code, in->shift);   /* enregistrement du combo */
         if (mm2_edit_learn_state() != lb) return 1;    /* capture ou validation auto: avalé */
         int was = mm2_edit_view();
         int consumed = mm2_edit_key(in->code, in->pressed, MM_SHIFT);
-        if (mm2_edit_learn_state() == MM2_L_NONE && in->pressed && in->code == 0x3D && MM_SHIFT &&
-            mm2_row_get(mm2_edit_cursor())->dst != MM2_D_SND)
-            op1_toast("key: snd requis");         /* Shift+blanc hors SND: expliquer le refus */
         if (was) takes_dirty = 1;                                 /* fermeture ou suppression: re-appliquer */
         if (!consumed && was && mm2_edit_view()) return 1;        /* toujours ouvert: modal */
         return consumed;                                          /* 0: sortie, la touche agit */
@@ -574,9 +562,7 @@ static void overlay(void *r, int32_t screen)
             else put_num(vb, w->snum);
             sf_text(r, xe + OP1_Q10(3), yq, SF_S, vb, 0x600, sc);
         }
-        if (i == cur && ls == MM2_L_KEY)           /* v6.9: learn touche = colonne destination */
-            sf_text(r, OP1_Q10(xs[2]), yq, SF_S, "LRN", 0x600, c_black);
-        else if (i == cur && ls == MM2_L_COMBO) {  /* v7.0: touches du combo au fil de l'eau */
+        if (i == cur && ls == MM2_L_COMBO) {       /* v7.0: touches du combo au fil de l'eau */
             uint8_t ck[MM2_COMBO_MAX];
             int cn = mm2_edit_learn_stage(ck);
             if (!cn) sf_text(r, OP1_Q10(xs[2]), yq, SF_S, "LRN", 0x600, c_black);
@@ -589,16 +575,6 @@ static void overlay(void *r, int32_t screen)
                     xe = sf_text(r, xe, yq + SF_DROP, SF_SMALL, eb, 0x600, c_black) + OP1_Q10(3);
                 }
             }
-        }
-        else if (w->dst == MM2_D_SND) {            /* v7.1: SND affiche la touche apprise */
-            uint8_t ck[MM2_COMBO_MAX];
-            int cn = mm2_combo_get(i, ck);
-            if (cn) {
-                char db[12]; char *de = put_str(db, "SND ");
-                if (ck[0] & 0x80) *de++ = 'S';
-                put_hx(de, ck[0] & 0x7F);
-                sf_text(r, OP1_Q10(xs[2]), yq, SF_S, db, 0x600, cur_ ? c_black : cols[2]);
-            } else sf_text(r, OP1_Q10(xs[2]), yq, SF_S, dstTextOfRow(w), 0x600, cur_ ? c_black : cols[2]);
         }
         else sf_text(r, OP1_Q10(xs[2]), yq, SF_S, dstTextOfRow(w), 0x600, cur_ ? c_black : cols[2]);
         {                                          /* fade: secondes en petites capitales */

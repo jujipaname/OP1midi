@@ -156,13 +156,9 @@ static void mm2_run(int i)
     int ch = r->ch ? r->ch : MM2_CH_ALL;                   /* 0 = non réglé: ALL */
     mm2_env e = { 0, 0, 0, 0 };
     switch (r->dst) {
-    case MM2_D_SND: {
-        uint8_t ck[MM2_COMBO_MAX];                         /* v7.1: touche apprise = rejeu brut */
-        int n = mm2_combo_get(i, ck);
-        if (n) { if (mm2_act_combo) mm2_act_combo(i, ck, n); return; }
+    case MM2_D_SND:
         if (mm2_act_snd && r->dnum >= 1 && r->dnum <= 8) mm2_act_snd(r->dnum);
         return;
-    }
     case MM2_D_TAPE:
         if (mm2_act_tape && r->dnum >= 1 && r->dnum <= 4) mm2_act_tape(r->dnum);
         return;

@@ -5,7 +5,7 @@
  *
  * 16 lignes de mapping. Chaque ligne: (type source NOTE/CC/PC, n° source) -> (destination, n°).
  * Destinations: COMBO (séquence de 1..3 touches, ± Shift, injectées en touches synthétiques),
- * SND 1..8 (learn par touche: la touche brute est stockée et rejeuée après un SYNTH), TAPE 1..4,
+ * SND 1..8 (touches en dur côté intégration), TAPE 1..4,
  * MUTE 1..4, MRK 1..32, M+, M-. Tout est trigger: CC front montant >= 64
  * (pas de répétition tant que tenu), NOTE = note-on avec vélocité > 0, PC = chaque message.
  * Première ligne correspondante gagnante. Canal MIDI global ('mmch': 0 off / 1..16 / 17 ALL).
@@ -21,9 +21,8 @@
  *   vert: rotation = n° source / Shift+rotation = canal de ligne; clic = type NOTE/CC/PC;
  *         Shift+clic = learn MIDI on-off (le premier NOTE/CC/PC capture)
  *   blanc: rotation = destination en liste plate (COMBO, OFF, SND 1..8, TAPE 1..4, MUTE 1..4,
- *         MRK 1..32, M+, M-); clic seul = sortie/validate du learn (touche ou combo);
- *         Shift+clic = learn on-off selon la destination (SND -> touche, COMBO -> combo,
- *         3 touches max, clic blanc = valider, 3e touche = validation auto)
+ *         MRK 1..32, M+, M-); clic seul = validation du learn combo; Shift+clic = learn combo
+ *         on-off (la destination doit être COMBO, 3 touches max)
  *   rouge: rotation = fade (OFF/1s/2s/8s/32s) / Shift+rotation = pistes du fade;
  *         Shift+clic = supprimer la ligne *   flèches = pages; Help (0x00) = valider + fermer; touches de mode/T/transport = quitter
  *   (sauvegarde systématique; sans Shift la touche agit: retour 0) — SAUF learn armé: toutes
@@ -100,8 +99,6 @@ int  mm2_edit_page(void);                   /* 0..3 */
 enum { MM2_L_NONE = 0, MM2_L_MIDI = 1, MM2_L_KEY = 2, MM2_L_COMBO = 3 };
 int  mm2_edit_learn_state(void);            /* MM2_L_*: learn MIDI / touche / combo / aucun */
 void mm2_edit_learn_feed(int stype, int num);          /* prochain NOTE/CC/PC appris -> ligne curseur */
-void mm2_edit_learn_feed_key_code(int code, int shift);/* touche sound apprise (dst SND): code brut
-                                            * +/- Shift stocké dans la ligne (combos), 1 touche */
 void mm2_edit_learn_feed_combo(int code, int shift);   /* touche du combo (dst COMBO): rejets
                                             * internes (Help, Shift, clics encodeurs) */
 int  mm2_edit_learn_stage(uint8_t out[3]);  /* touches du combo en cours d'enregistrement */

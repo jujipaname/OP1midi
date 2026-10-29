@@ -465,6 +465,25 @@ des touches apprises; la colonne verte affichait le canal.
 
 Reste: le user relève les codes des 8 sound keys (à mettre en dur), test interne/externe.
 
+## 26. v7.2 — touches sound en dur (29 octobre 2026)
+
+Le user a relevé les 8 sound keys avec l'affichage v7.1: **2D 2E 2F 10 11 12 13 14** (hex,
+sons 1..8). Mise en dur:
+
+1. `sndkeys[8]` dans l'intégration; `snd_inject(slot)` = SYNTH down/up + `sndkeys[slot-1]`
+   down/up (plus de Shift+T_n dérivé de codes supposés — l'ancienne table 0x06..0x09 était
+   fausse: ce sont les touches T/piste, pas les sound keys).
+2. **Learn touche SND retiré**: Shift+blanc n'arme plus que le learn **combo** (destination
+   COMBO requise); le toast « key: snd requis » part avec lui. `mm2_edit_learn_feed_key_code`
+   supprimée du noyau; les touches apprises résiduelles sont ignorées pour SND.
+3. mm2_test: SND = act_snd(slot) uniquement (résidu de learn ignoré), learn combo pour le
+   bloc « aucune touche ne quitte ».
+- **`op1midi.knl` v7.2** : 20 368 o, bss 400, 17 imports, 0 warning. mm2_test ok.
+
+Question ouverte (user): les marqueurs fonctionnent « en momentary et pas en toggle » —
+clarifier le comportement attendu (A/B: 2e déclenchement = retour à la position précédente?).
+
+
 
 
 
