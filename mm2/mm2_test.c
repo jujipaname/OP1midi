@@ -34,8 +34,16 @@ static void st_clear(void) { nst = 0; }
 /* ---- compteurs d'actions ---- */
 static int n_snd, n_tape, n_mute, n_marker, n_mnext, n_mprev;
 static int last_snd, last_tape, last_mute, last_mlocal, last_fade;
+static int n_combo, combo_len;
+static uint8_t combo_k[4];
 static void act_snd(int k) { n_snd++; last_snd = k; }
 static void act_tape(int t) { n_tape++; last_tape = t; }
+static void act_combo(int row, const uint8_t *k, int n)
+{
+    (void)row;
+    n_combo++; combo_len = n;
+    for (int i = 0; i < n && i < 4; i++) combo_k[i] = k[i];
+}
 static int last_fmask;
 static void act_mute(int t, int f, int m) { n_mute++; last_mute = t; last_fade = f; last_fmask = m; }
 static void act_marker(int local, int f, int m) { n_marker++; last_mlocal = local; last_fade = f; last_fmask = m; }
@@ -48,10 +56,12 @@ static void reset(void)
 {
     st_clear();
     n_snd = n_tape = n_mute = n_marker = n_mnext = n_mprev = 0;
+    n_combo = combo_len = 0; combo_k[0] = combo_k[1] = combo_k[2] = combo_k[3] = 0;
     last_snd = last_tape = last_mute = last_mlocal = last_fade = last_fmask = -99;
     mm2_setting_get = fake_get; mm2_setting_put = fake_put;
     mm2_act_snd = act_snd; mm2_act_tape = act_tape; mm2_act_mute = act_mute;
     mm2_act_marker = act_marker; mm2_act_mnext = act_mnext; mm2_act_mprev = act_mprev;
+    mm2_act_combo = act_combo;
     mm2_env_query = env_query;
     mm2_enable(1);
     mm2_load();                                            /* tout à zéro: mapping inactif */
@@ -68,8 +78,8 @@ int main(void)
            q.dnum == 45 && q.fade == 2);
     mm2_row bad = { 0, 9, 0, 0, 0, 0 };
     assert(mm2_row_pack(&bad) == -1);
-    mm2_row back = mm2_row_unpack(7 << 14);                /* dst 7 > MM2_D_MAX: invalidée */
-    assert(back.dst == MM2_D_OFF && back.snum == 0 && back.dnum == 0);
+    mm2_row back = mm2_row_unpack(7 << 14);                /* dst 7 = COMBO: valide désormais */
+    assert(back.dst == MM2_D_COMBO && back.snum == 0 && back.dnum == 0);
     mm2_row back2 = mm2_row_unpack(3 << 5);                /* stype 3 > MM2_S_MAX: invalidée */
     assert(back2.dst == MM2_D_OFF && back2.stype == 0 && back2.snum == 0);
     mm2_row back3 = mm2_row_unpack(20);                    /* ch 20 > ALL: invalidée */
@@ -240,9 +250,9 @@ int main(void)
     mm2_edit_key(0x3C,1,0); A2(mm2_row_get(0)->stype==MM2_S_CC,"vert clic: NOTE->CC");
     mm2_edit_key(0x3C,1,0); mm2_edit_key(0x3C,1,0);
     A2(mm2_row_get(0)->stype==MM2_S_NOTE,"vert clic x3: wrap PC->NOTE");
-    mm2_edit_turn(2,1*MM2_DETENT,0);
+    mm2_edit_turn(2,2*MM2_DETENT,0);
     A2(mm2_row_get(0)->dst==MM2_D_SND&&mm2_row_get(0)->dnum==1&&mm2_row_get(0)->ch==MM2_CH_ALL,
-       "blanc +1: SND 1 + ch ALL auto");
+       "blanc +2: OFF->COMBO->SND 1 + ch ALL auto");
     mm2_edit_turn(2,7*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_SND&&mm2_row_get(0)->dnum==8,"blanc +7: SND 8");
     mm2_edit_turn(2,1*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_TAPE&&mm2_row_get(0)->dnum==1,"blanc: SND8->TAPE 1");
     mm2_edit_turn(2,4*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_MUTE&&mm2_row_get(0)->dnum==1,"blanc: TAPE4->MUT 1");
@@ -250,7 +260,9 @@ int main(void)
     mm2_edit_turn(2,31*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_MRK&&mm2_row_get(0)->dnum==32,"blanc +31: MRK 32");
     mm2_edit_turn(2,2*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_MRM,"blanc +2: MRK32->M+->M-");
     mm2_edit_turn(2,-1*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_MRP,"blanc -1: M-->M+");
-    mm2_edit_turn(2,3*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_SND&&mm2_row_get(0)->dnum==1,"blanc +3: M+->M-->OFF->SND1");
+    mm2_edit_turn(2,3*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_COMBO,"blanc +3: M+->M-->OFF->COMBO (premier)");
+    mm2_edit_turn(2,1*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_SND&&mm2_row_get(0)->dnum==1,"blanc +1: COMBO->SND1");
+    mm2_edit_turn(2,6*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_SND&&mm2_row_get(0)->dnum==7,"blanc +6: SND1->SND7");
     mm2_edit_turn(3,1*MM2_DETENT,0); A2(mm2_row_get(0)->fade==1,"rouge: fade ligne 0->1");
     mm2_edit_turn(3,4*MM2_DETENT,0); A2(mm2_row_get(0)->fade==0,"rouge +4: fade wrap -> 0");
     mm2_edit_turn(3,-1*MM2_DETENT,0); A2(mm2_row_get(0)->fade==4,"rouge -1: fade 0->32s");
@@ -299,7 +311,7 @@ int main(void)
     A2(mm2_edit_key(0x3B,1,1)==1&&mm2_row_get(0)->dst==MM2_D_OFF&&mm2_row_get(0)->snum==0&&
        mm2_row_get(0)->ch==0&&mm2_row_get(0)->fade==0,"Shift+clic bleu: ligne vidée");
     /* learn armé: aucune touche ne quitte l'éditeur (v6.8); clic blanc seul sort du learn */
-    mm2_edit_turn(2,1*MM2_DETENT,0);
+    mm2_edit_turn(2,2*MM2_DETENT,0);
     A2(mm2_row_get(0)->dst==MM2_D_SND&&mm2_row_get(0)->dnum==1,"ligne réassignée: SND 1");
     mm2_edit_key(0x3D,1,1); A2(mm2_edit_learn_state()==MM2_L_KEY,"key learn armé");
     A2(mm2_edit_key(0x01,1,0)==1&&mm2_edit_view()&&mm2_edit_learn_state()==MM2_L_KEY,"learn: SYNTH avalé");
@@ -318,6 +330,48 @@ int main(void)
     mm2_edit_open();
     A2(mm2_edit_key(0x04,1,1)==1&&!mm2_edit_view(),"sortie TAPE avec shift: consommée");
     A2(!mm2_edit_key(0x25,1,0)&&!mm2_edit_key(0x3B,1,0)&&!mm2_edit_key(0x3C,1,0)&&!mm2_edit_key(0x3D,1,0),"éditeur fermé: touches passent");
+
+    /* ---- v7.0: destination COMBO (première de la liste), learn combo, rejeu, persistance ---- */
+    reset();
+    mm2_edit_open();
+    uint8_t ck[4];
+    mm2_edit_turn(2,-1*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_MRM,"blanc -1: OFF->M- (wrap)");
+    mm2_edit_turn(2,1*MM2_DETENT,0);  A2(mm2_row_get(0)->dst==MM2_D_OFF,"blanc +1: M-->OFF");
+    mm2_edit_turn(2,1*MM2_DETENT,0);  A2(mm2_row_get(0)->dst==MM2_D_COMBO,"blanc +1: OFF->COMBO (premier)");
+    { int lo, hi; mm2_dnum_range(MM2_D_COMBO,&lo,&hi); A2(lo==0&&hi==3,"plage COMBO: 0..3"); }
+    mm2_edit_key(0x3D,1,1); A2(mm2_edit_learn_state()==MM2_L_COMBO,"learn combo armé (Shift+blanc)");
+    A2(mm2_edit_learn_stage(ck)==0,"staging vide à l'armement");
+    mm2_edit_learn_feed_combo(0x00,0); mm2_edit_learn_feed_combo(0x26,0); mm2_edit_learn_feed_combo(0x3C,0);
+    A2(mm2_edit_learn_stage(ck)==0,"Help/Shift/encodeur rejetés");
+    mm2_edit_learn_feed_combo(0x06,1); mm2_edit_learn_feed_combo(0x21,0);
+    A2(mm2_edit_learn_state()==MM2_L_COMBO&&mm2_edit_learn_stage(ck)==2&&ck[0]==0x86&&ck[1]==0x21,
+       "staging: Shift+T1, play");
+    mm2_edit_key(0x3D,1,0); A2(mm2_edit_learn_state()==MM2_L_NONE,"clic blanc: validation");
+    A2(mm2_combo_get(0,ck)==2&&ck[0]==0x86&&ck[1]==0x21&&mm2_row_get(0)->dnum==2,"combo stocké, dnum = 2");
+    mm2_edit_key(0x3D,1,1); A2(mm2_edit_learn_state()==MM2_L_COMBO,"réarmé");
+    mm2_edit_learn_feed_combo(0x06,0); mm2_edit_learn_feed_combo(0x07,0); mm2_edit_learn_feed_combo(0x08,0);
+    A2(mm2_edit_learn_state()==MM2_L_NONE&&mm2_edit_learn_stage(ck)==0,"3e touche: validation auto");
+    A2(mm2_combo_get(0,ck)==3&&ck[0]==0x06&&ck[2]==0x08,"combo complet: 3 touches");
+    mm2_edit_key(0x00,1,0); A2(!mm2_edit_view(),"Help: ferme");
+    /* rejeu: NOTE 60 -> le hook reçoit la séquence */
+    mm2_row_edit(0)->stype = MM2_S_NOTE; mm2_row_edit(0)->snum = 60;
+    assert(mm2_note(0,60,100) && n_combo==1 && combo_len==3 && combo_k[0]==0x06 && combo_k[2]==0x08);
+    /* Shift+clic bleu: vider la ligne efface aussi le combo */
+    mm2_edit_open();
+    mm2_edit_key(0x3B,1,1);
+    A2(mm2_row_get(0)->dst==MM2_D_OFF&&mm2_combo_get(0,ck)==0,"Shift+bleu: ligne et combo vidés");
+    mm2_edit_key(0x00,1,0);
+    /* persistance 'mmk' */
+    mm2_edit_open(); mm2_edit_turn(2,1*MM2_DETENT,0);
+    mm2_edit_key(0x3D,1,1);
+    mm2_edit_learn_feed_combo(0x09,1);
+    mm2_edit_key(0x3D,1,0);
+    mm2_edit_key(0x00,1,0);
+    A2(mm2_combo_get(0,ck)==1&&ck[0]==0x89,"combo Shift+T4 stocké");
+    mm2_save();
+    memset((void *)mm2_row_get(0), 0, sizeof(mm2_row));
+    mm2_load();
+    A2(mm2_combo_get(0,ck)==1&&ck[0]==0x89&&fake_get("mmk0",-1)==0x89,"'mmk0' persisté");
 
     printf("mm2_test: ok\n");
     return 0;

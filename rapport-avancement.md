@@ -407,6 +407,38 @@ firmware), certains débordent, beaucoup sont inutiles.
 
 Reste: test hardware v6.9; v7.0 = destination COMBO (spé proposée, §23bis à valider).
 
+## 24. v7.0 — destination COMBO (29 octobre 2026)
+
+Design validé par le user: **un seul COMBO dans la liste, en premier** (juste après OFF —
+première destination atteinte en tournant le blanc depuis une ligne vide); chaque ligne qui
+le choisit porte sa propre séquence — pas de banque de combos, pas de défilement de 16
+combos. 3 touches max ± Shift.
+
+1. **Liste plate**: 0 OFF, 1 COMBO, 2-9 SND, 10-13 TAPE, 14-17 MUTE, 18-49 MRK, 50 M+, 51 M-.
+   `dst` = 7 (nouvel enum, `MM2_D_MAX` 7; 3 bits du codec suffisent).
+2. **Stockage**: `combos[16][3]`, 1 octet par entrée (bit7 = Shift, bits 0-6 = code), clés
+   `'mmk0'..'mmk15'` (1 int32/ligne). Format `'mmv'` inchangé — les vieilles configs n'ont
+   pas de 'mmk' → combos vides par défaut. `mm2_combo_get/set`, hook `mm2_act_combo`.
+3. **Learn combo**: Shift+clic blanc sur une ligne dst=COMBO arme `MM2_L_COMBO` (le type de
+   learn suit la destination). Chaque touche s'ajoute (Help, Shift lui-même et les 4 clics
+   encodeurs rejetés); **clic blanc = valider**, **3e touche = validation auto**. Staging
+   visible en direct dans la colonne blanche (hex petites capitales, « S06 21 » = Shift+T1,
+   play); validé → « COMBO n » (dnum = nombre, pur affichage). Toute transition de learn
+   vide le staging.
+4. **Rejeu**: le trigger met la ligne en file; le drain construit la séquence ([Shift down]
+   down, up [Shift up] par entrée) et l'injecte comme touches synthétiques (même mécanique
+   que la sélection de sound key). Pas de garde d'état (comme SND).
+5. **Vider la ligne** (Shift+bleu/rouge) efface aussi le combo. Learn armé: le MIDI passe
+   sans capture ni dispatch (KEY et COMBO).
+- **`op1midi.knl` v7.0** : 21 128 o (text 10316), bss 400, 17 imports, 0 warning.
+  mm2_test ok — nouveaux tests: liste plate COMBO premier + wrap, plage dnum 0..3, rejets
+  d'apprentissage, staging/commit/auto-validation, rejeu (hook reçoit la séquence), Shift+bleu
+  vide le combo, persistance 'mmk0'. Codec: dst 7 désormais valide (test ajusté).
+
+Reste: test hardware v7.0 (combo end-to-end), README utilisateur, « 8 sons en dur » quand
+l'utilisateur aura fixé les touches.
+
+
 
 
 

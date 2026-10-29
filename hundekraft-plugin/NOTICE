@@ -51,6 +51,20 @@ INSTALL
   managed by the workshop. Save a disk-mode backup first (see install-recuperation.md in the repository).
 
 CHANGES
+- v7.0 (2026-10-28): COMBO destination (user-validated design). ONE "COMBO" entry in the
+  destination list, placed FIRST (right after OFF — first destination reached when turning
+  the white knob from an empty row). Each row that selects COMBO carries its OWN key
+  sequence: no combo bank, no 16-combo scrolling. Sequence = up to 3 keys, each optionally
+  shifted (byte: bit7 = Shift, bits 0-6 = key code), stored per row in settings keys
+  'mmk0'..'mmk15' (one int32 per row; 'mmv' row format unchanged). Recording: white knob to
+  COMBO, then Shift+white click arms the combo learn (the learn type follows the
+  destination: SND -> key learn, COMBO -> combo learn); every key press appends an entry
+  (Help, Shift itself and the 4 encoder clicks are NOT recordable; white click = validate,
+  3rd key = auto-validate). While recording, the white column shows the staged keys in
+  small-caps hex (e.g. "S06 21" = Shift+T1, play); a committed row shows "COMBO n". Replay:
+  the mapping trigger injects the sequence as synthetic keys through the same queue as the
+  sound-key selection ([Shift down] key down, key up [Shift up] per entry). "Vider la ligne"
+  (Shift+blue/red) also clears the row's combo.
 - v6.9 (2026-10-28): v6.8 hardware-confirmed. Toast diet (user request: the firmware-font
   toasts ALSO leave atlas residues, some overflow): only learn-capture toasts remain
   (cc/note/pc N, "touche N") plus the "key: snd requis" refusal hint. Removed: arming

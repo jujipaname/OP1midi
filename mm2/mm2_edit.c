@@ -4,9 +4,10 @@
  *   bleu: rotation = curseur (16 slots, la page suit); clic = mode d'affichage des notes
  *         (numéro / anglais / solfège); Shift+clic = vider la ligne
  *   vert: clic = type source / Shift+clic = learn MIDI on-off; rotation = n° source / Shift = canal
- *   blanc: rotation = destination + n° en liste plate (OFF, SND 1..8, TAPE 1..4, MUTE 1..4,
- *          MRK 1..32, M+, M- — les 4 tapes et les 32 markers défilent); clic seul = sortie
- *          du learn touche; Shift+clic = learn touche on-off (destination SND requise)
+ *   blanc: rotation = destination + n° en liste plate (COMBO, OFF, SND 1..8, TAPE 1..4,
+ *          MUTE 1..4, MRK 1..32, M+, M- — les 4 tapes et les 32 markers défilent); clic seul
+ *          = sortie du learn touche ou validation du combo; Shift+clic = learn on-off selon
+ *          la destination (SND -> touche, COMBO -> combo: 3 touches max, ± Shift)
  *   rouge: rotation = fade de la ligne (OFF/1s/2s/8s/32s) / Shift = pistes; Shift+clic = supprimer
  * Learn armé (MIDI ou touche): aucune touche ne quitte l'éditeur (Help valide toujours).
  * Rendu côté intégration: colonnes bleu/vert/blanc/rouge alignées aux encodeurs, curseur en
@@ -17,15 +18,36 @@
 
 mm2_row *mm2_row_edit(int i);              /* mm2_core.c */
 
-static uint8_t cur, page, learn, open;                 /* learn: MM2_L_* (0/1/2) */
+static uint8_t cur, page, learn, open;                 /* learn: MM2_L_* (0..3) */
 static int acc[4];
+static uint8_t stage[MM2_COMBO_MAX];                   /* combo en cours d'enregistrement */
+static uint8_t stage_n;
 
-void mm2_edit_open(void) { open = 1; cur = page = 0; learn = MM2_L_NONE; for (int i = 0; i < 4; i++) acc[i] = 0; }
-void mm2_edit_close(int save) { if (save) mm2_save(); open = 0; learn = MM2_L_NONE; }
+static void learn_set(int l)                    /* tout changement de learn vide le staging */
+{
+    if (learn != l) stage_n = 0;
+    learn = (uint8_t)l;
+}
+
+static void combo_commit(int row)               /* staging -> stockage (dnum = nombre, affichage) */
+{
+    mm2_combo_set(row, stage, stage_n);
+    mm2_row *r = mm2_row_edit(row);
+    if (r) r->dnum = (uint8_t)stage_n;
+    stage_n = 0;
+}
+
+void mm2_edit_open(void) { open = 1; cur = page = 0; learn_set(MM2_L_NONE); for (int i = 0; i < 4; i++) acc[i] = 0; }
+void mm2_edit_close(int save) { if (save) mm2_save(); open = 0; learn_set(MM2_L_NONE); }
 int mm2_edit_view(void) { return open; }
 int mm2_edit_cursor(void) { return cur; }
 int mm2_edit_page(void) { return page; }
 int mm2_edit_learn_state(void) { return open ? learn : MM2_L_NONE; }
+int mm2_edit_learn_stage(uint8_t out[MM2_COMBO_MAX])
+{
+    if (out) for (int k = 0; k < stage_n; k++) out[k] = stage[k];
+    return open && learn == MM2_L_COMBO ? stage_n : 0;
+}
 
 void mm2_edit_learn_feed(int stype, int num)               /* prochain NOTE/CC/PC appris */
 {
@@ -42,14 +64,27 @@ void mm2_edit_learn_feed_key(int slot)                     /* touche sound appri
 {
     if (!open || learn != MM2_L_KEY || slot < 1 || slot > 8) return;
     mm2_row_edit(cur)->dnum = (uint8_t)slot;
-    learn = 0;
+    learn_set(MM2_L_NONE);
 }
 
-void mm2_edit_delete(void)                                 /* Shift + clic rouge: ligne -> OFF */
+void mm2_edit_learn_feed_combo(int code, int shift)        /* touche du combo (dst COMBO) */
+{
+    if (!open || learn != MM2_L_COMBO || code <= 0 || code > 0x7F ||
+        code == 0x26 || (code >= 0x3B && code <= 0x3E)) return;   /* Help/Shift/encodeurs: rejetés */
+    if (stage_n >= MM2_COMBO_MAX) return;
+    stage[stage_n++] = (uint8_t)(code | (shift ? 0x80 : 0));
+    if (stage_n == MM2_COMBO_MAX) {                        /* plein: validation auto */
+        combo_commit(cur);
+        learn_set(MM2_L_NONE);
+    }
+}
+
+void mm2_edit_delete(void)                                 /* Shift + clic rouge/bleu: ligne -> OFF */
 {
     if (!open) return;
     mm2_row *r = mm2_row_edit(cur);
     r->ch = 0; r->stype = 0; r->snum = 0; r->dst = MM2_D_OFF; r->dnum = 0; r->fade = 0;
+    mm2_combo_set(cur, 0, 0);                              /* le combo appartient à la ligne */
 }
 
 static int exit_key(int code)              /* modes, T1..T4, transport: quittent l'éditeur */
@@ -76,18 +111,25 @@ int mm2_edit_key(int code, int pressed, int shift)
         return 1;
     }
     if (code == 0x3C) {                       /* vert: type / Shift+clic = learn MIDI on-off */
-        if (shift) { learn = learn == MM2_L_MIDI ? MM2_L_NONE : MM2_L_MIDI; return 1; }
-        if (learn == MM2_L_MIDI) { learn = MM2_L_NONE; return 1; }   /* clic seul: sortie du learn */
+        if (shift) { learn_set(learn == MM2_L_MIDI ? MM2_L_NONE : MM2_L_MIDI); return 1; }
+        if (learn == MM2_L_MIDI) { learn_set(MM2_L_NONE); return 1; }   /* clic seul: sortie du learn */
         mm2_row *r = mm2_row_edit(cur);
         r->stype = (uint8_t)(r->stype == MM2_S_MAX ? MM2_S_NOTE : r->stype + 1);
         return 1;
     }
-    if (code == 0x3D) {                       /* blanc: Shift+clic = learn touche / clic = sortie */
+    if (code == 0x3D) {                       /* blanc: Shift+clic = learn (SND: touche, COMBO:
+                                               * combo) / clic seul = sortie ou validation */
         if (shift) {
-            if (mm2_row_get(cur)->dst == MM2_D_SND) learn = learn == MM2_L_KEY ? MM2_L_NONE : MM2_L_KEY;
-            return 1;                          /* hors SND: rien (la destination n'est pas une touche) */
+            int dst = mm2_row_get(cur)->dst;
+            if (dst == MM2_D_SND) learn_set(learn == MM2_L_KEY ? MM2_L_NONE : MM2_L_KEY);
+            else if (dst == MM2_D_COMBO) learn_set(learn == MM2_L_COMBO ? MM2_L_NONE : MM2_L_COMBO);
+            return 1;                          /* autre destination: rien (pas une affaire de touche) */
         }
-        if (learn == MM2_L_KEY) { learn = MM2_L_NONE; return 1; }    /* clic seul: sortie du learn */
+        if (learn == MM2_L_KEY || learn == MM2_L_COMBO) {
+            if (learn == MM2_L_COMBO) combo_commit(cur);    /* clic blanc = valider le combo */
+            learn_set(MM2_L_NONE);
+            return 1;
+        }
         return 1;                          /* rien d'autre au blanc sans shift (modal) */
     }
     if (code == 0x3E) {                                                /* rouge: Shift = supprimer */
@@ -97,26 +139,29 @@ int mm2_edit_key(int code, int pressed, int shift)
     return 0;                                                          /* avalé par l'intégration (modal) */
 }
 
-/* liste plate des destinations: OFF, SND 1..8, TAPE 1..4, MUTE 1..4, MRK 1..32, M+, M- (0..50) */
-#define FLAT_TOTAL 50
+/* liste plate des destinations: OFF, COMBO, SND 1..8, TAPE 1..4, MUTE 1..4, MRK 1..32, M+, M-
+ * (0..51; COMBO en premier: première destination atteinte en tournant depuis OFF) */
+#define FLAT_LAST 51
 static int flat_pos(const mm2_row *r)
 {
-    if (r->dst == MM2_D_SND) { int n = r->dnum < 1 ? 1 : r->dnum > 8 ? 8 : r->dnum; return n; }
-    if (r->dst == MM2_D_TAPE) { int n = r->dnum < 1 ? 1 : r->dnum > 4 ? 4 : r->dnum; return 8 + n; }
-    if (r->dst == MM2_D_MUTE) { int n = r->dnum < 1 ? 1 : r->dnum > 4 ? 4 : r->dnum; return 12 + n; }
-    if (r->dst == MM2_D_MRK) { int n = r->dnum < 1 ? 1 : r->dnum > MM2_MRK_MAX ? MM2_MRK_MAX : r->dnum; return 16 + n; }
-    if (r->dst == MM2_D_MRP) return 49;
-    if (r->dst == MM2_D_MRM) return 50;
+    if (r->dst == MM2_D_COMBO) return 1;
+    if (r->dst == MM2_D_SND) { int n = r->dnum < 1 ? 1 : r->dnum > 8 ? 8 : r->dnum; return 1 + n; }
+    if (r->dst == MM2_D_TAPE) { int n = r->dnum < 1 ? 1 : r->dnum > 4 ? 4 : r->dnum; return 9 + n; }
+    if (r->dst == MM2_D_MUTE) { int n = r->dnum < 1 ? 1 : r->dnum > 4 ? 4 : r->dnum; return 13 + n; }
+    if (r->dst == MM2_D_MRK) { int n = r->dnum < 1 ? 1 : r->dnum > MM2_MRK_MAX ? MM2_MRK_MAX : r->dnum; return 17 + n; }
+    if (r->dst == MM2_D_MRP) return 50;
+    if (r->dst == MM2_D_MRM) return 51;
     return 0;                                              /* OFF (et toute destination inconnue) */
 }
 static void flat_set(mm2_row *r, int pos)
 {
     if (pos <= 0) { r->dst = MM2_D_OFF; r->dnum = 0; }
-    else if (pos <= 8) { r->dst = MM2_D_SND; r->dnum = (uint8_t)pos; }
-    else if (pos <= 12) { r->dst = MM2_D_TAPE; r->dnum = (uint8_t)(pos - 8); }
-    else if (pos <= 16) { r->dst = MM2_D_MUTE; r->dnum = (uint8_t)(pos - 12); }
-    else if (pos <= 48) { r->dst = MM2_D_MRK; r->dnum = (uint8_t)(pos - 16); }
-    else if (pos == 49) { r->dst = MM2_D_MRP; r->dnum = 0; }
+    else if (pos == 1) { r->dst = MM2_D_COMBO; r->dnum = 0; }
+    else if (pos <= 9) { r->dst = MM2_D_SND; r->dnum = (uint8_t)(pos - 1); }
+    else if (pos <= 13) { r->dst = MM2_D_TAPE; r->dnum = (uint8_t)(pos - 9); }
+    else if (pos <= 17) { r->dst = MM2_D_MUTE; r->dnum = (uint8_t)(pos - 13); }
+    else if (pos <= 49) { r->dst = MM2_D_MRK; r->dnum = (uint8_t)(pos - 17); }
+    else if (pos == 50) { r->dst = MM2_D_MRP; r->dnum = 0; }
     else { r->dst = MM2_D_MRM; r->dnum = 0; }
 }
 
@@ -145,8 +190,8 @@ void mm2_edit_turn(int knob, int delta, int shift)
         }
     } else if (knob == 2) {                                            /* blanc: destination en liste plate */
         int pos = flat_pos(r);
-        while (st > 0) { pos = pos >= 50 ? 0 : pos + 1; st--; }
-        while (st < 0) { pos = pos <= 0 ? 50 : pos - 1; st++; }
+        while (st > 0) { pos = pos >= FLAT_LAST ? 0 : pos + 1; st--; }
+        while (st < 0) { pos = pos <= 0 ? FLAT_LAST : pos - 1; st++; }
         flat_set(r, pos);
         if (!r->ch) r->ch = MM2_CH_ALL;                            /* ligne nouvellement assignée */
     } else if (knob == 3) {                                            /* rouge: fade / Shift: pistes */
