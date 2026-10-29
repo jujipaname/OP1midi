@@ -23,7 +23,8 @@
  *   blanc: rotation = destination en liste plate (COMBO, OFF, SND 1..8, TAPE 1..4, MUTE 1..4,
  *         MRK 1..32, M+, M-); clic seul = validation du learn combo; Shift+clic = learn combo
  *         on-off (la destination doit être COMBO, 3 touches max)
- *   rouge: rotation = fade (OFF/1s/2s/8s/32s) / Shift+rotation = pistes du fade;
+ *   rouge: rotation = fade (OFF/1s/2s/8s/32s) / Shift+rotation = pistes du fade; clic = pistes
+ *         du fade aussi (v7.4, destinations de saut MRK/M+/M-: ALL/P1/P2/P3/P4/P12/P34);
  *         Shift+clic = supprimer la ligne *   flèches = pages; Help (0x00) = valider + fermer; touches de mode/T/transport = quitter
  *   (sauvegarde systématique; sans Shift la touche agit: retour 0) — SAUF learn armé: toutes
  *   les touches sont avalées (retour 1), Help reste valide. */
@@ -55,7 +56,8 @@ typedef struct { uint8_t ch, stype, snum, dst, dnum, fade, fmask; } mm2_row;
  * SND 1..8, TAPE 1..4, MUTE 1..4, MRK 1..MM2_MRK_MAX, M+/M-, OFF et COMBO sans paramètre
  * — pour COMBO, dnum = nombre de touches du combo, pur affichage);
  * fade: 0..4 (OFF/1s/2s/8s/32s) — utilisé par MUTE/MRK/M+/M- uniquement (côté intégration);
- * fmask: MM2_FM_* — les pistes que le fade affecte */
+ * fmask: MM2_FM_* — les pistes que le fade affecte (sauts MRK/M+/M-; un MUTE fond la piste
+ * mute elle-même, le masque ne s'applique pas) */
 
 /* ---- ABI d'intégration (définies ici, assignées par l'hôte au démarrage; 0 = action ignorée) ---- */
 extern int  (*mm2_setting_get)(const char *key, int dflt);

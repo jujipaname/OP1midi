@@ -8,7 +8,8 @@
  *          MUTE 1..4, MRK 1..32, M+, M- — les 4 tapes et les 32 markers défilent); clic seul
  *          = validation du combo; Shift+clic = learn combo on-off (destination COMBO requise:
  *          3 touches max, ± Shift; les touches SND sont en dur côté intégration)
- *   rouge: rotation = fade de la ligne (OFF/1s/2s/8s/32s) / Shift = pistes; Shift+clic = supprimer
+ *   rouge: rotation = fade de la ligne (OFF/1s/2s/8s/32s) / Shift = pistes; clic = pistes aussi
+ *          (v7.4: destinations de saut MRK/M+/M-); Shift+clic = supprimer
  * Learn armé (MIDI ou combo): aucune touche ne quitte l'éditeur (Help valide toujours).
  * Rendu côté intégration: colonnes bleu/vert/blanc/rouge alignées aux encodeurs, curseur en
  * surbrillance (fond couleur de colonne, typo noire); la colonne source affiche toujours la
@@ -127,8 +128,16 @@ int mm2_edit_key(int code, int pressed, int shift)
         }
         return 1;                          /* rien d'autre au blanc sans shift (modal) */
     }
-    if (code == 0x3E) {                                                /* rouge: Shift = supprimer */
+    if (code == 0x3E) {                       /* rouge: Shift = supprimer; clic = pistes du fade
+                                               * (v7.4: destinations de saut MRK/M+/M-) */
         if (shift) mm2_edit_delete();
+        else {
+            const mm2_row *g = mm2_row_get(cur);
+            if (g->dst >= MM2_D_MRK && g->dst <= MM2_D_MRM) {
+                mm2_row *r = mm2_row_edit(cur);
+                r->fmask = r->fmask >= MM2_FM_MAX ? MM2_FM_ALL : (uint8_t)(r->fmask + 1);
+            }
+        }
         return 1;
     }
     return 0;                                                          /* avalé par l'intégration (modal) */

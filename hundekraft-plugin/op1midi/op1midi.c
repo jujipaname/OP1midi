@@ -4,7 +4,7 @@
  * Entree: Shift + Help (mode clock) -> T3 (settings) -> rangée "MIDI MAP" (op1_switch
  * enregistré au 1er OP1_EV_SERVICE après le BOOT_DONE (après midiseq): 2e rangée = blanche):
  * tourner = ON/OFF global, appui blanc = ouvre l'éditeur.
- * Éditeur v11 (overlay modal sur voile + panneau noir, police vectorielle kennel, majuscules;
+ * Éditeur v12 (overlay modal sur voile + panneau noir, police vectorielle kennel, majuscules;
  * les étiquettes et unités — note, cc, pc, ch, s — en petites capitales, la police n'a que
  * des majuscules):
  *   bleu: rotation = curseur (16 slots, la page suit); clic = affichage des notes
@@ -18,8 +18,10 @@
  *         Shift+clic = learn combo on/off (la destination doit être COMBO; 3 touches max
  *         ± Shift, 3e touche = validation auto; armé: le blanc affiche les touches,
  *         ex « S06 21 »)
- *   rouge: rotation = fade (OFF/1s/2s/8s/32s) / Shift+rotation = pistes du fade;
- *         Shift+clic = supprimer la ligne
+ *   rouge: rotation = fade (OFF/1s/2s/8s/32s) / clic et Shift+rotation = pistes du fade
+ *         (v7.4: destinations de saut MRK/M+/M-, affichées en petites capitales: ALL, P1..
+ *         P4, P12, P34; un MUTE fond la piste mute elle-même); Shift+clic = supprimer
+ *         la ligne; la case fade reste VIDE pour les destinations sans fade (v7.4)
  *   fleches = pages; sorties (sauvegarde systématique): Help (Shift ou non), touches de mode /
  *   T1..T4 / transport (la touche agit ensuite sauf Shift tenu) — SAUF learn armé: toutes les
  *   touches sont avalées (Help valide toujours; clic blanc seul sort du learn touche).
@@ -37,10 +39,16 @@
  * (un ensemble partagé entre les tapes en 3.0.3: le n-ième marqueur, tape courante, sans
  * switch), MRK+/MRK- (saut, wrap).
  *
- * Fade (Shift + rotation blanche dans l'éditeur: OFF/1s/2s/8s/32s): en lecture, tout saut de
- * marker fond les 4 volumes de pistes tape (mots live 0xFF801928 + gammes 0xFF8018CC, R246)
- * vers 0, saute au silence (main loop), puis remonte et restaure. Piloté par tick (audio),
- * saut exécuté sur la main loop; STOP pendant un fade: saut annulé, volumes restaurés.
+ * Fade (rotation rouge: OFF/1s/2s/8s/32s): en lecture, tout saut de marker (MRK/M+/M-) fond
+ * les pistes choisies (clic rouge ou Shift+rotation: ALL/P1/P2/P3/P4/P12/P34) des volumes live
+ * 0xFF801928 + gammes 0xFF8018CC (R246) vers 0, saute au silence (main loop), puis remonte et
+ * restaure. MUTE: la piste fond elle-même (les autres pistes ne bougent pas), le byte mute
+ * bascule au silence, volumes restaurés; unmute direct. Piloté par tick (audio), saut exécuté
+ * sur la main loop; STOP pendant un fade: saut annulé, volumes restaurés.
+ * v7.4: les vues de bande tape (2), mixer (3) et mixov Shift+mixer (0x0D) autorisent les
+ * sauts/fades — le mode mixer seul bloquait tout (env_query tape-only); M+/M-: fade et masque
+ * étaient inversés dans la file (durée = masque!); fade_mask n'était JAMAIS assigné (toujours
+ * ALL); MUTE ignore désormais le fade sauf en lecture (fondu de la piste).
  * v7.3: le saut ne presse PLAY que si la bande est arrêtée (la touche PLAY est un toggle:
  * la presser en lecture arrêtait la bande au lieu de continuer depuis le marker).
  * Les CC mappés sont retirés du chemin clés/encodeurs (op1_midi_take_cc); les notes mappées
@@ -93,7 +101,9 @@ static void pq_push(int kind, int a, int b, int m)
 
 static void env_query(mm2_env *e)
 {
-    e->tape_mode = cur_mode == 2;                /* mode tape (ModeSwitcher, 0xFF907D58) */
+    /* vues de bande: tape (2), mixer (3) et mixov Shift+mixer (0x0D) — ModeSwitcher 0xFF907D58,
+     * touches de mode 0x02..0x05 = synth/drum/tape/mixer (tape = 2, cf op1r midi/mm.c) */
+    e->tape_mode = cur_mode == 2 || cur_mode == 3 || cur_mode == 0x0D;
     e->raw_state = *(volatile int32_t *)0x018C17D4;   /* 3 arrêt, 6 armé, 10 lecture, 5/7 rec */
     e->punch = pu_mode;                          /* données partagées du core */
     e->markers = tm_n;
@@ -223,8 +233,8 @@ static void act_snd(int key) { pq_push(K_SND, key, 0, 0); }
 static void act_tape(int tape) { pq_push(K_TAPE, tape, 0, 0); }
 static void act_mute(int track, int fade, int fmask) { pq_push(K_MUTE, track, fade, fmask); }
 static void act_marker(int local, int fade, int fmask) { pq_push(K_MARKER, local, fade, fmask); }
-static void act_mnext(int fade, int fmask) { pq_push(K_MNEXT, fade, fmask, 0); }
-static void act_mprev(int fade, int fmask) { pq_push(K_MPREV, fade, fmask, 0); }
+static void act_mnext(int fade, int fmask) { pq_push(K_MNEXT, 0, fade, fmask); }
+static void act_mprev(int fade, int fmask) { pq_push(K_MPREV, 0, fade, fmask); }
 static void act_combo(int row, const uint8_t *keys, int n)   /* la séquence est relue au drain */
 { (void)keys; (void)n; pq_push(K_COMBO, row, 0, 0); }
 
@@ -289,8 +299,21 @@ static void drain(void)                          /* main loop */
         } else if (p.kind == K_MUTE) {
             if (p.a >= 1 && p.a <= 4) {
                 volatile uint8_t *m = (volatile uint8_t *)0xFF8010A0;
-                m[p.a - 1] ^= 1;
-                ((void (*)(void))0x01967ED0)();  /* Core: mute words for the DSP */
+                mm2_env e;
+                env_query(&e);
+                if (p.b && !fade_st && e.tape_mode && !e.punch && e.raw_state == 10
+                    && !(m[p.a - 1] & 1)) {                      /* v7.4: couper en fondu (lecture):
+                                                                  * LA piste mute fond, les autres
+                                                                  * pistes ne bougent pas */
+                    j_kind = J_MUTE; j_track = (uint8_t)p.a;
+                    j_pending = 1; fade_secs_v = p.b;
+                    fade_mask = (uint8_t)p.a;                    /* MM2_FM_1..4 = pistes 1..4 */
+                    fade_start();
+                    continue;
+                }
+                m[p.a - 1] ^= 1;                                 /* arrêté, sans fade ou unmute: direct
+                                                                  * (le byte rend la remontée inaudible) */
+                ((void (*)(void))0x01967ED0)();                  /* Core: mute words for the DSP */
             }
         } else if (p.kind == K_COMBO) {      /* v7.0: séquence de touches synthétiques */
             uint8_t ck[MM2_COMBO_MAX];
@@ -307,7 +330,7 @@ static void drain(void)                          /* main loop */
                 }
                 inject_keys(seq, n / 2);
             }
-        } else {                             /* K_MARKER / K_MNEXT / K_MPREV */
+        } else {                             /* K_MARKER / K_MNEXT / K_MPREV: sauts (± fade) */
             mm2_env e;
             env_query(&e);
             if (!e.tape_mode || e.punch || (e.raw_state != 3 && e.raw_state != 10)) continue;
@@ -318,6 +341,7 @@ static void drain(void)                          /* main loop */
                 if (j_kind == J_MARKER && j_pos < 0) continue;
                 j_pending = 1;
                 fade_secs_v = p.b;                               /* fade de la ligne */
+                fade_mask = (uint8_t)p.m;                        /* v7.4: pistes du fade (oubli v7.0!) */
                 fade_start();
                 continue;
             }
@@ -580,13 +604,18 @@ static void overlay(void *r, int32_t screen)
             }
         }
         else sf_text(r, OP1_Q10(xs[2]), yq, SF_S, dstTextOfRow(w), 0x600, cur_ ? c_black : cols[2]);
-        {                                          /* fade: secondes en petites capitales */
-            const uint8_t *fc = cur_ ? c_black : cols[3];
-            if (w->fade) {
+        {   /* v7.4: fade seulement là où il s'applique (MUTE/MRK/M+/M-) — case vide sinon; pour les
+             * sauts, destination du fade en petites capitales (clic rouge: ALL/P1..P4/P12/P34) */
+            if (w->dst >= MM2_D_MUTE && w->dst <= MM2_D_MRM) {
                 static const char *const fsec[4] = { "1", "2", "8", "32" };
-                int xe = sf_text(r, OP1_Q10(xs[3]), yq, SF_S, fsec[w->fade - 1], 0x600, fc);
-                sf_text(r, xe, yq + SF_DROP, SF_SMALL, "S", 0x600, fc);
-            } else sf_text(r, OP1_Q10(xs[3]), yq, SF_S, "OFF", 0x600, fc);
+                static const char *const fmds[MM2_FM_MAX + 1] = { "ALL", "P1", "P2", "P3", "P4", "P12", "P34" };
+                const uint8_t *fc = cur_ ? c_black : cols[3];
+                int xe = sf_text(r, OP1_Q10(xs[3]), yq, SF_S, w->fade ? fsec[w->fade - 1] : "OFF", 0x600, fc);
+                if (w->dst == MM2_D_MUTE)              /* mute: la piste fond elle-même, unité s */
+                    sf_text(r, xe, yq + SF_DROP, SF_SMALL, "S", 0x600, fc);
+                else
+                    sf_text(r, xe, yq + SF_DROP, SF_SMALL, fmds[w->fmask % (MM2_FM_MAX + 1)], 0x600, fc);
+            }
         }
     }
 }

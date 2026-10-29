@@ -51,6 +51,21 @@ INSTALL
   managed by the workshop. Save a disk-mode backup first (see install-recuperation.md in the repository).
 
 CHANGES
+- v7.4 (2026-10-29): mixer mode + fade fixes (user hardware feedback).
+  * Mixer mode: markers were dead there — env_query only accepted the tape mode (2); the
+    mixer mode (3, mode keys 0x02..0x05 = synth/drum/tape/mixer) and the Shift+mixer overview
+    (0x0D) are now accepted like tape for markers/M+/M-/fades.
+  * M+/M-: the queue pushed (fade, fmask) where the drain read (x, fade) — the fade DURATION
+    was the track MASK (0 = no fade, 4 = 32 s...). Order fixed.
+  * The fade track mask was never applied (fade_mask was never assigned — always ALL).
+    Assigned from the row now.
+  * MUTE now fades: while playing, the muted track fades out (its own volume only, other
+    tracks untouched), the mute byte toggles at silence, volumes restored right after (the
+    mute makes it inaudible). Unmute stays instant (safe if the user unmutes by hand).
+  * Editor: the fade cell is EMPTY for destinations without fade (OFF/SND/TAPE/COMBO); for
+    jumps it shows seconds + the fade destination in small caps (ALL/P1/P2/P3/P4/P12/P34),
+    cycled with the red encoder click (or Shift+turn as before); MUTE shows seconds only
+    (the track fades itself).
 - v7.3 (2026-10-28): MARKER JUMPS NOW KEEP PLAYING (user report: "momentary, not toggle").
   Root cause: op1_seq_press_play dispatches the PLAY key (0x22), which is a TOGGLE — so a
   jump triggered WHILE PLAYING stopped the tape right after seeking. do_jump now only presses

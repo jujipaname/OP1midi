@@ -77,7 +77,7 @@ int main(void)
     mm2_row q = mm2_row_unpack(p);
     assert(q.ch == 3 && q.stype == MM2_S_CC && q.snum == 80 && q.dst == MM2_D_MRK &&
            q.dnum == 45 && q.fade == 2);
-    mm2_row bad = { 0, 9, 0, 0, 0, 0 };
+    mm2_row bad = { 0, 9, 0, 0, 0, 0, 0 };
     assert(mm2_row_pack(&bad) == -1);
     mm2_row back = mm2_row_unpack(7 << 14);                /* dst 7 = COMBO: valide désormais */
     assert(back.dst == MM2_D_COMBO && back.snum == 0 && back.dnum == 0);
@@ -294,6 +294,18 @@ int main(void)
        "Shift+clic rouge: ligne supprimée (tout à zéro)");
     mm2_edit_key(0x3E,1,0);                                /* release: avalée */
     A2(mm2_edit_key(0x3E,1,0)==1&&mm2_edit_view(),"rouge clic sans shift: consommé (rien sans shift)");
+    /* v7.4: clic rouge = pistes du fade (destinations de saut MRK/M+/M-) */
+    mm2_row_edit(0)->dst = MM2_D_MRK; mm2_row_edit(0)->dnum = 1;
+    mm2_edit_key(0x3E,1,0); A2(mm2_row_get(0)->fmask==MM2_FM_1,"clic rouge MRK: ALL->P1");
+    mm2_edit_key(0x3E,1,0); mm2_edit_key(0x3E,1,0); mm2_edit_key(0x3E,1,0);
+    A2(mm2_row_get(0)->fmask==MM2_FM_4,"clic rouge x3: P1->P2->P3->P4");
+    mm2_edit_key(0x3E,1,0); A2(mm2_row_get(0)->fmask==MM2_FM_12,"clic rouge: P4->P12");
+    mm2_edit_key(0x3E,1,0); mm2_edit_key(0x3E,1,0);
+    A2(mm2_row_get(0)->fmask==MM2_FM_ALL,"clic rouge x2: P12->P34->ALL (wrap)");
+    mm2_row_edit(0)->dst = MM2_D_MUTE; mm2_row_edit(0)->dnum = 2; uint8_t fm_keep = mm2_row_get(0)->fmask;
+    mm2_edit_key(0x3E,1,0); A2(mm2_row_get(0)->fmask==fm_keep,"clic rouge sur MUTE: rien (la piste fond elle-même)");
+    mm2_row_edit(0)->dst = MM2_D_SND; mm2_row_edit(0)->dnum = 1;
+    mm2_edit_key(0x3E,1,0); A2(mm2_row_get(0)->fmask==fm_keep,"clic rouge sur SND: rien (pas de fade)");
     /* clic bleu: mode d'affichage des notes (numéro -> anglais -> solfège -> numéro) */
     A2(mm2_edit_key(0x3B,1,0)==1&&mm2_edit_view()&&mm2_note_disp()==1,"bleu clic: numéro->anglais");
     A2(!strcmp(mm2_note_name(61),"C#4")&&!strcmp(mm2_note_name(60),"C4")&&!strcmp(mm2_note_name(0),"C-1")&&

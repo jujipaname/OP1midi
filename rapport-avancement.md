@@ -619,5 +619,23 @@ Reste : re-test hardware v6.3, README utilisateur.
 
 Reste : test matériel, README utilisateur.
 
+## 28. v7.4 — mode mixer + corrections fade (29 octobre 2026)
 
+Retours hardware: MRK muets en mode mixer; fade absent/à durée aberrante sur M+/M-; fade-in
+seulement en mode tape; demande de fade sur MUTE; case fade vide si non applicable; sélecteur
+de pistes du fade au clic rouge.
 
+1. **Mixer muet** : `env_query` n'acceptait que le mode tape (2) — le mode **mixer (3)**
+   (touches 0x02..0x05 = synth/drum/tape/mixer, tape=2 → clé−2) et mixov (0x0D) bloquaient
+   tout le chemin marker. Tape_mode = 2, 3 ou 0x0D.
+2. **M+/M-** : inversion d'arguments dans la file (`pq_push(K_MNEXT, fade, fmask)` vs drain
+   qui lit `p.b` = fade) → la **durée** du fade était la valeur du **masque**. Corrigé.
+3. **Masque jamais appliqué** : `fade_mask` n'était jamais assigné (toujours ALL). Corrigé
+   (`fade_mask = p.m` au drain).
+4. **MUTE + fade** : en lecture, la piste mute fond (elle seule), byte basculé au silence,
+   volumes restaurés juste après (inaudible sous mute); unmute direct (sûr si unmute manuel).
+   Chemin `J_MUTE` (mort depuis v5) activé.
+5. **Éditeur** : case fade **vide** pour OFF/SND/TAPE/COMBO; pour les sauts, secondes +
+   destination en petites capitales (ALL/P1/P2/P3/P4/P12/P34), **clic rouge** = cycle
+   (Shift+rotation inchangé); MUTE: secondes seules (l'unité s).
+- **`op1midi.knl` v7.4** : 21 180 o, 0 warning. mm2_test ok (clic rouge testé sur MRK/MUTE/SND).
