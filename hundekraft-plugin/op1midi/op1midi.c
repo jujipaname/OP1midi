@@ -46,8 +46,6 @@
 static void wire(void);
 static void mute_toggle(int track);              /* définie plus bas (drain l'utilise) */
 static char *put_str(char *e, const char *s);    /* définie plus bas (overlay) */
-static char *put_hex2(char *e, int v);           /* définie plus bas (overlay) */
-#define MM_SHIFT  (*(volatile uint8_t *)0x01DD7F78)   /* octet Shift stock R246 (markers.c) */
 
 /* ---- ABI mm2 -> réglages kennel (espace de noms du plugin) ---- */
 static int mm_get(const char *k, int d) { return (int)op1_setting_get(FEAT, k, (int32_t)d); }
@@ -362,7 +360,13 @@ static uint64_t seen_down;
 static int input(const op1_input *in)
 {
     wire();
-    sh_held = MM_SHIFT;                          /* octet Shift stock (fiable sur hardware) */
+    if (in->type == OP1_IN_KEY && in->code == 0x26) {
+        sh_held = in->pressed;                   /* v6.7: Shift suivi par SES événements (0x26+/0x26-),
+                                                  * quelle que soit la page — l'octet stock 0x01DD7F78
+                                                  * n'a jamais été fiable sur notre chemin (klog: 26+/26-
+                                                  * arrivent, l'octet reste à 0). Plus aucune dépendance. */
+        return 0;                                /* traverse: le stock tient son propre état */
+    }
     if (in->type == OP1_IN_KEY) {
         if (!mm2_edit_view()) {
             if (in->code == 0x3D && in->pressed && in->mode == 0x0C && !op1_text_entry_open()) {
@@ -372,39 +376,25 @@ static int input(const op1_input *in)
             }
             return 0;
         }
-        if (in->code == 0x26) {                  /* Shift: NE PAS avaler — tant que l'éditeur est
-                                                  * modal, le stock ne voyait jamais l'appui Shift et
-                                                  * ne mettait pas son octet à 1: les combos arrivaient
-                                                  * avec shift=0 (v6.2..v6.5). Le laisser passer. */
-            op1_toast(in->pressed ? "shift s1" : "shift s0");   /* diag v6.6, retirée en v6.7 */
-            return 0;
-        }
-        if (in->pressed) {                       /* diag v6.6 (temporaire): chaque appui en toast */
-            char b[10], *e = put_str(b, "k");
-            e = put_hex2(e, in->code);
-            *e++ = (char)('0' + (sh_held != 0));
-            *e = 0;
-            op1_toast(b);
-        }
         if (in->pressed) seen_down |= (uint64_t)1 << (in->code & 63);
         else if (!(seen_down >> (in->code & 63) & 1)) return 0;   /* release tenue avant l'ouverture */
         seen_down &= ~((uint64_t)1 << (in->code & 63));
         if (mm2_edit_learn_state() == MM2_L_KEY && in->pressed && in->code >= 0x06 && in->code <= 0x09) {
-            mm2_edit_learn_feed_key(in->code - 0x05 + (in->shift ? 4 : 0));   /* touche sound apprise */
+            mm2_edit_learn_feed_key(in->code - 0x05 + (sh_held ? 4 : 0));   /* touche sound apprise */
             log_key_learn("touche sound -> slot");
             return 1;                                 /* avalée: rien ne bouge pendant l'apprentissage */
         }
         if (mm2_edit_learn_state() == MM2_L_KEY && in->pressed)
             log_key_learn("touche enregistrée");      /* toutes les touches sont tracées */
         int was = mm2_edit_view();
-        int consumed = mm2_edit_key(in->code, in->pressed, MM_SHIFT);
+        int consumed = mm2_edit_key(in->code, in->pressed, sh_held);
         if (was) takes_dirty = 1;                                 /* fermeture ou suppression: re-appliquer */
         if (!consumed && was && mm2_edit_view()) return 1;        /* toujours ouvert: modal */
         return consumed;                                          /* 0: sortie, la touche agit */
     }
     if (mm2_edit_view()) {
         int f0 = mm2_row_get(mm2_edit_cursor())->fade;
-        mm2_edit_turn(in->code, in->delta, MM_SHIFT);
+        mm2_edit_turn(in->code, in->delta, sh_held);
         if (in->type == OP1_IN_KNOB && in->code == 2 && mm2_row_get(mm2_edit_cursor())->fade != f0) {
             static const char *const fn[] = { "FADE OFF", "FADE 1S", "FADE 2S", "FADE 8S", "FADE 32S" };
             op1_toast(fn[mm2_row_get(mm2_edit_cursor())->fade]);
@@ -470,14 +460,6 @@ static char *put_num(char *e, int v)                       /* 0..255 */
     if (v >= 10) *e++ = (char)('0' + v / 10 % 10);
     *e++ = (char)('0' + v % 10);
     *e = 0;
-    return e;
-}
-
-static char *put_hex2(char *e, int v)                      /* 0..255 en 2 chiffres hex */
-{
-    static const char h[] = "0123456789abcdef";
-    *e++ = h[(v >> 4) & 15];
-    *e++ = h[v & 15];
     return e;
 }
 

@@ -346,6 +346,25 @@ Reste : choix de police (propositions faites), test matériel, README utilisateu
 
 Reste : test matériel (rendu de la police native, key learn), README utilisateur.
 
+## 21. v6.7 — Shift suivi par événements (28 octobre 2026)
+
+Le pass-through v6.6 n'a pas suffi (learn jamais armé, sur aucune version). L'octet stock
+0x01DD7F78 n'a jamais été observé à 1 sur notre chemin, alors que les événements 0x26+/0x26-
+arrivent toujours (klog v6.5). Décision: **ne plus dépendre de l'octet du tout** — `sh_held`
+est mis à jour par les événements Shift eux-mêmes, quelle que soit la page (le tracking est
+avant le test de vue), et 0x26 continue de traverser vers le stock.
+- Les toasts de diag v6.6 sont retirés; retour visuel par la page elle-même (colonne du
+  curseur = canal quand Shift tenu, "lrn" quand learn armé).
+- Pictos coin haut-gauche: théorie = churn de l'atlas glyphes/icônes du firmware déclenché
+  par les chaînes firmware-Text qui changent vite (les toasts par touche étaient la source
+  majeure). Retrait des toasts = source principale supprimée. Si les pictos persistent:
+  v6.8 passe les cellules dynamiques en sf_text (police vectorielle kennel, zéro atlas).
+- knl 16 032 o, 0 warning. mm2_test ok (core inchangé).
+
+Reste: test hardware v6.7 (Shift+clic vert arme lrn, Shift+rouge supprime, Shift+rotation
+blanche = fade), pictos si persistent, README utilisateur.
+
+
 ## 20. v6.6 — fix Shift: l'éditeur modal avalait l'appui Shift (28 octobre 2026)
 
 Données du user (ligne diag v6.5): Shift seul → `26+26-26+26-26+26`; Shift+clic vert →
