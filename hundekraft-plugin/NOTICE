@@ -51,6 +51,12 @@ INSTALL
   managed by the workshop. Save a disk-mode backup first (see install-recuperation.md in the repository).
 
 CHANGES
+- v7.3 (2026-10-28): MARKER JUMPS NOW KEEP PLAYING (user report: "momentary, not toggle").
+  Root cause: op1_seq_press_play dispatches the PLAY key (0x22), which is a TOGGLE — so a
+  jump triggered WHILE PLAYING stopped the tape right after seeking. do_jump now only presses
+  play when the tape is stopped (raw_state != 10); while playing the head just relocates and
+  continues from the marker. The fade-jump path (jump at silence) no longer presses play
+  either — the transport is rolling there by definition.
 - v7.2 (2026-10-28): SOUND KEYS HARDCODED from the user's hardware readings (v7.1 display):
   sound 1..8 = SYNTH then 2D 2E 2F 10 11 12 13 14 (hex). The key learn for SND is removed
   (Shift+white only arms the COMBO learn now; the "key: snd requis" hint goes with it).

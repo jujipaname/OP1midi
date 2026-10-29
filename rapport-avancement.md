@@ -483,6 +483,21 @@ sons 1..8). Mise en dur:
 Question ouverte (user): les marqueurs fonctionnent « en momentary et pas en toggle » —
 clarifier le comportement attendu (A/B: 2e déclenchement = retour à la position précédente?).
 
+## 27. v7.3 — le saut de marker continue la lecture (29 octobre 2026)
+
+User: « les Mrk fonctionnent en momentary et pas en toggle », puis clarification: il veut
+saut + **continuation de la lecture**. Cause trouvée dans le kennel: `op1_seq_press_play`
+met `play_pending` et `kn_seq_after_key` dispatche la touche **PLAY (0x22)** — un **toggle**.
+Donc un saut déclenché **en lecture** arrêtait la bande juste après le seek.
+
+1. `do_jump(pos, playing)`: presser PLAY seulement si `raw_state != 10`; en lecture, la tête
+   se repositionne et continue.
+2. Chemin fade (saut au silence): `do_jump(pos, 1)` — le transport roule déjà, ne pas
+   re-presser PLAY (même bug latent).
+3. Arrêté: saut + démarrage (inchangé).
+- **`op1midi.knl` v7.3** : 0 warning. mm2_test ok (noyau inchangé).
+
+
 
 
 

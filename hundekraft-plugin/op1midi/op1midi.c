@@ -41,6 +41,8 @@
  * marker fond les 4 volumes de pistes tape (mots live 0xFF801928 + gammes 0xFF8018CC, R246)
  * vers 0, saute au silence (main loop), puis remonte et restaure. Piloté par tick (audio),
  * saut exécuté sur la main loop; STOP pendant un fade: saut annulé, volumes restaurés.
+ * v7.3: le saut ne presse PLAY que si la bande est arrêtée (la touche PLAY est un toggle:
+ * la presser en lecture arrêtait la bande au lieu de continuer depuis le marker).
  * Les CC mappés sont retirés du chemin clés/encodeurs (op1_midi_take_cc); les notes mappées
  * sont avalées dans le pipeline de notes (source MIDI uniquement). */
 #ifndef OP1_HOST
@@ -125,10 +127,11 @@ static int32_t j_pos;
 
 static int tape_live(void) { return op1_tape_current() + 1; }
 
-static void do_jump(int32_t pos)                 /* tape courante: locate + play */
+static void do_jump(int32_t pos, int playing)    /* tape courante: locate; en lecture: la tête
+                                                  * continue (PLAY est un toggle: ne pas le presser) */
 {
     op1_tape_pos_set(pos);
-    op1_seq_press_play();
+    if (!playing) op1_seq_press_play();
 }
 
 static void jump_resolve(int32_t *pos, int *tape)          /* cible au moment du silence */
@@ -321,12 +324,12 @@ static void drain(void)                          /* main loop */
             /* immédiat (arrêté, ou lecture sans fade) */
             if (p.kind == K_MARKER) {
                 int32_t pos = marker_pos(p.a);
-                if (pos >= 0) do_jump(pos);          /* ensemble partagé: tape courante */
+                if (pos >= 0) do_jump(pos, e.raw_state == 10);   /* ensemble partagé: tape courante */
             } else {
                 int32_t pos; int tape;
                 j_kind = p.kind == K_MNEXT ? J_NEXT : J_PREV;
                 jump_resolve(&pos, &tape);
-                if (pos >= 0) do_jump(pos);
+                if (pos >= 0) do_jump(pos, e.raw_state == 10);
             }
         }
     }
@@ -339,7 +342,7 @@ static void drain(void)                          /* main loop */
             else {
                 int32_t pos; int tape;
                 jump_resolve(&pos, &tape);
-                if (pos >= 0) { do_jump(pos); start_fade_in(); }
+                if (pos >= 0) { do_jump(pos, 1); start_fade_in(); }   /* le transport roule déjà */
                 else fade_cancel();
             }
         } else fade_cancel();                    /* état changé (STOP...): restaurer sans sauter */
