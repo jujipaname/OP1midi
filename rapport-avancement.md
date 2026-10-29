@@ -391,6 +391,23 @@ et key learn fonctionnels. Trois demandes user, trois changements:
 
 Reste: test hardware v6.8 (notes anglaises/solfège, clear bleu, learn blindé), README utilisateur.
 
+## 23. v6.9 — régime toasts, LRN à sa colonne (29 octobre 2026)
+
+v6.8 confirmée. Retours user: **les toasts laissent eux aussi des résidus d'atlas** (police
+firmware), certains débordent, beaucoup sont inutiles.
+
+1. **Toasts de capture uniquement**: cc/note/pc N (midi), « touche N » (key), « key: snd
+   requis » (refus). Retirés: armement (« midi learn »/« key learn »/« learn off »),
+   « notes: … », toasts de fade.
+2. **LRN à sa colonne**: learn MIDI → LRN en vert (source, inchangé); learn **touche** →
+   LRN en **blanc** (destination — c'est la destination qu'il édite; l'afficher en vert
+   portait à confusion).
+3. L'état armé est désormais **persistant à l'écran** (colonnes), pas volatil (toast).
+- **`op1midi.knl` v6.9** : 18 400 o, 17 imports, 0 warning. mm2_test ok.
+
+Reste: test hardware v6.9; v7.0 = destination COMBO (spé proposée, §23bis à valider).
+
+
 
 
 ## 20. v6.6 — fix Shift: l'éditeur modal avalait l'appui Shift (28 octobre 2026)

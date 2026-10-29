@@ -51,6 +51,13 @@ INSTALL
   managed by the workshop. Save a disk-mode backup first (see install-recuperation.md in the repository).
 
 CHANGES
+- v6.9 (2026-10-28): v6.8 hardware-confirmed. Toast diet (user request: the firmware-font
+  toasts ALSO leave atlas residues, some overflow): only learn-capture toasts remain
+  (cc/note/pc N, "touche N") plus the "key: snd requis" refusal hint. Removed: arming
+  toasts ("midi learn"/"key learn"/"learn off"), "notes: ..." toast, fade toasts. The armed
+  state is now shown PERSISTENTLY in the columns: learn MIDI arms -> LRN in the green
+  (source) column as before; learn KEY arms -> LRN in the WHITE (destination) column (was
+  green — confusing, the key learn edits the destination).
 - v6.8 (2026-10-28): hardware-confirmed v6.7 (pictograms GONE — the firmware glyph/icon atlas
   theory was right; midi learn and key learn work). Three changes:
   (1) KEY LEARN NO LONGER EXITS: with any learn armed (midi or key), no key quits the editor

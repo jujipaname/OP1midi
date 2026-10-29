@@ -11,7 +11,8 @@
  * Learn armé (MIDI ou touche): aucune touche ne quitte l'éditeur (Help valide toujours).
  * Rendu côté intégration: colonnes bleu/vert/blanc/rouge alignées aux encodeurs, curseur en
  * surbrillance (fond couleur de colonne, typo noire); Shift tenu, la colonne source du curseur
- * affiche le canal; learn armé, elle affiche LRN. */
+ * affiche le canal; learn MIDI armé, la colonne source affiche LRN; learn touche armé, la
+ * colonne destination affiche LRN. */
 #include "mm2.h"
 
 mm2_row *mm2_row_edit(int i);              /* mm2_core.c */
