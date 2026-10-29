@@ -7,13 +7,13 @@
  *   blanc: rotation = destination + n° en liste plate (COMBO, OFF, SND 1..8, TAPE 1..4,
  *          MUTE 1..4, MRK 1..32, M+, M- — les 4 tapes et les 32 markers défilent); clic seul
  *          = sortie du learn touche ou validation du combo; Shift+clic = learn on-off selon
- *          la destination (SND -> touche, COMBO -> combo: 3 touches max, ± Shift)
+ *          la destination (SND -> touche brute stockée, COMBO -> combo: 3 touches max, ± Shift)
  *   rouge: rotation = fade de la ligne (OFF/1s/2s/8s/32s) / Shift = pistes; Shift+clic = supprimer
- * Learn armé (MIDI ou touche): aucune touche ne quitte l'éditeur (Help valide toujours).
+ * Learn armé (MIDI, touche ou combo): aucune touche ne quitte l'éditeur (Help valide toujours).
  * Rendu côté intégration: colonnes bleu/vert/blanc/rouge alignées aux encodeurs, curseur en
- * surbrillance (fond couleur de colonne, typo noire); Shift tenu, la colonne source du curseur
- * affiche le canal; learn MIDI armé, la colonne source affiche LRN; learn touche armé, la
- * colonne destination affiche LRN. */
+ * surbrillance (fond couleur de colonne, typo noire); la colonne source affiche toujours la
+ * source (étiquette en petites capitales: note/cc/pc); learn MIDI armé, elle affiche LRN;
+ * learn touche/combo armé, la colonne destination affiche LRN ou les touches en cours. */
 #include "mm2.h"
 
 mm2_row *mm2_row_edit(int i);              /* mm2_core.c */
@@ -29,11 +29,11 @@ static void learn_set(int l)                    /* tout changement de learn vide
     learn = (uint8_t)l;
 }
 
-static void combo_commit(int row)               /* staging -> stockage (dnum = nombre, affichage) */
+static void combo_commit(int row)               /* staging -> stockage */
 {
-    mm2_combo_set(row, stage, stage_n);
     mm2_row *r = mm2_row_edit(row);
-    if (r) r->dnum = (uint8_t)stage_n;
+    mm2_combo_set(row, stage, stage_n);
+    if (r && r->dst == MM2_D_COMBO) r->dnum = (uint8_t)stage_n;   /* nombre = affichage (COMBO) */
     stage_n = 0;
 }
 
@@ -60,17 +60,23 @@ void mm2_edit_learn_feed(int stype, int num)               /* prochain NOTE/CC/P
     learn = 0;
 }
 
-void mm2_edit_learn_feed_key(int slot)                     /* touche sound apprise (dst SND) */
+static int combo_key_ok(int code)                          /* Help/Shift/clics encodeurs: pas jouables */
 {
-    if (!open || learn != MM2_L_KEY || slot < 1 || slot > 8) return;
-    mm2_row_edit(cur)->dnum = (uint8_t)slot;
+    return code > 0 && code <= 0x7F && code != 0x26 && (code < 0x3B || code > 0x3E);
+}
+
+void mm2_edit_learn_feed_key_code(int code, int shift)     /* touche sound apprise (dst SND): 1 touche */
+{
+    if (!open || learn != MM2_L_KEY || !combo_key_ok(code)) return;
+    stage[0] = (uint8_t)(code | (shift ? 0x80 : 0));
+    stage_n = 1;
+    combo_commit(cur);                                     /* la touche brute est stockée telle quelle */
     learn_set(MM2_L_NONE);
 }
 
 void mm2_edit_learn_feed_combo(int code, int shift)        /* touche du combo (dst COMBO) */
 {
-    if (!open || learn != MM2_L_COMBO || code <= 0 || code > 0x7F ||
-        code == 0x26 || (code >= 0x3B && code <= 0x3E)) return;   /* Help/Shift/encodeurs: rejetés */
+    if (!open || learn != MM2_L_COMBO || !combo_key_ok(code)) return;
     if (stage_n >= MM2_COMBO_MAX) return;
     stage[stage_n++] = (uint8_t)(code | (shift ? 0x80 : 0));
     if (stage_n == MM2_COMBO_MAX) {                        /* plein: validation auto */

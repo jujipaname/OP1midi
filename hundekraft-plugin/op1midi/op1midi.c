@@ -4,19 +4,20 @@
  * Entree: Shift + Help (mode clock) -> T3 (settings) -> rangée "MIDI MAP" (op1_switch
  * enregistré au 1er OP1_EV_SERVICE après le BOOT_DONE (après midiseq): 2e rangée = blanche):
  * tourner = ON/OFF global, appui blanc = ouvre l'éditeur.
- * Éditeur v10 (overlay modal sur voile + panneau noir, police vectorielle kennel, majuscules;
- * les unités — ch, s — en petites capitales, la police n'a que des majuscules):
+ * Éditeur v11 (overlay modal sur voile + panneau noir, police vectorielle kennel, majuscules;
+ * les étiquettes et unités — note, cc, pc, ch, s — en petites capitales, la police n'a que
+ * des majuscules):
  *   bleu: rotation = curseur (16 slots, la page suit); clic = affichage des notes
  *         (numéro / anglais C#4 / solfège DO#4 — global, 'mmnd'); Shift+clic = vider
  *         la ligne
- *   vert: rotation = n° source / Shift+rotation = canal de ligne (la colonne source du
- *         curseur affiche ch n / ALL tant que Shift est tenu; learn MIDI armé, elle
- *         affiche LRN); clic = type source (NOTE/CC/PC); Shift+clic = learn MIDI on/off
+ *   vert: rotation = n° source / Shift+rotation = canal de ligne (la colonne source affiche
+ *         TOUJOURS la source: « note 60 », « note C#4 », « cc 74 » — v7.1: plus de canal
+ *         affiché); clic = type source (NOTE/CC/PC); Shift+clic = learn MIDI on/off
  *   blanc: rotation = destination + n° en liste plate (COMBO en premier, OFF, SND 1..8,
  *         TAPE 1..4, MUTE 1..4, MRK 1..32, M+, M-); clic seul = sortie du learn touche ou
- *         validation du combo; Shift+clic = learn on/off selon la destination (SND -> touche,
- *         « key: snd requis » sinon; COMBO -> combo: 3 touches max ± Shift, clic blanc =
- *         valider, 3e touche = validation auto; armé: le blanc affiche les touches, ex « S06 21 »)
+ *         validation du combo; Shift+clic = learn on/off selon la destination (SND -> touche
+ *         brute, COMBO -> combo: 3 touches max ± Shift, clic blanc = valider, 3e touche =
+ *         validation auto; armé: le blanc affiche les touches, ex « S06 21 »)
  *   rouge: rotation = fade (OFF/1s/2s/8s/32s) / Shift+rotation = pistes du fade;
  *         Shift+clic = supprimer la ligne
  *   fleches = pages; sorties (sauvegarde systématique): Help (Shift ou non), touches de mode /
@@ -26,14 +27,14 @@
  *   d'atlas et encombrent): cc/note/pc N à la capture midi, touche N à la capture key,
  *   « key: snd requis » au refus. Curseur en rouge, colonnes aux couleurs des encodeurs.
  *
- * Sources: NOTE (note-on vel > 0; note-off mappée avalée via le pipeline), CC (front >= 64),
- * PC (chaque message). Destinations: COMBO (v7.0: séquence de 1..3 touches ± Shift injectée
- * en touches synthétiques — même file que la sélection de sound key), SOUND 1..8 (learn par
- * touche: Shift+clic blanc arme — la destination de la ligne doit être SND, sinon refus
- * annoncé par toast — la
- * prochaine touche sound T1..T4 / Shift+T1..T4 est capturée; replay par injection de touches
- * synthétiques dans la file stock — SYNTH puis Shift+T_n, adresses R246 0x01DD5044/0x01DD5244
- * /0x01DD5248/0x01DD524D, réveil 0x019C2F04, pattern op1r midi/mx.c), TAPE 1..4
+ * Sources: NOTE (note-on vel > 0, EXTERNE (USB midi) comme INTERNE (clavier de l'OP-1 — v7.1:
+ * le pipeline de notes déclenche et avale); note-off mappée avalée via le pipeline), CC (front
+ * >= 64), PC (chaque message). Destinations: COMBO (v7.0: séquence de 1..3 touches ± Shift
+ * injectée en touches synthétiques — même file que la sélection de sound key), SOUND 1..8
+ * (learn par touche v7.1: la TOUCHE BRUTE est stockée (affichée « SND 20 » / « SND S20 ») et
+ * rejeuée après un SYNTH — pattern op1r midi/mx.c, adresses R246 0x01DD5044/0x01DD5244
+ * /0x01DD5248/0x01DD524D, réveil 0x019C2F04; sans touche apprise: fallback SYNTH + T_{dnum}),
+ * TAPE 1..4
  * (op1_tape_switch), MUTE 1..4 (octet mute R246 0xFF8010A0 + màj DSP 0x01967ED0), MARKER 1..32
  * (un ensemble partagé entre les tapes en 3.0.3: le n-ième marqueur, tape courante, sans
  * switch), MRK+/MRK- (saut, wrap).
@@ -71,7 +72,6 @@ static void mm_put(const char *k, int v) { op1_setting_set(FEAT, k, v); }
 
 /* ---- état suivi ---- */
 static volatile uint8_t cur_mode;                /* OP1_EV_MODE / op1_input.mode */
-static volatile uint8_t sh_held;                 /* Shift tenu (mis à jour à chaque événement) */
 
 /* ---- file d'actions (producteur: timer midi_raw; consommateur: main loop) ---- */
 enum { K_SND = 1, K_TAPE, K_MUTE, K_MARKER, K_MNEXT, K_MPREV, K_COMBO };
@@ -81,10 +81,14 @@ static volatile uint8_t pq_wr, pq_rd;
 
 static void pq_push(int kind, int a, int b, int m)
 {
+    uint32_t f;                                            /* producteurs: timer ET pipeline de notes */
+    __asm__ volatile ("cli %0;" : "=d"(f));
     uint8_t w = pq_wr, n = (uint8_t)((w + 1) & 7);
-    if (n == pq_rd) return;
-    pq[w].kind = (uint8_t)kind; pq[w].a = (int16_t)a; pq[w].b = (int16_t)b;
-    pq[w].m = (uint8_t)m; pq_wr = n;
+    if (n != pq_rd) {
+        pq[w].kind = (uint8_t)kind; pq[w].a = (int16_t)a; pq[w].b = (int16_t)b;
+        pq[w].m = (uint8_t)m; pq_wr = n;
+    }
+    __asm__ volatile ("sti %0;" : : "d"(f));
 }
 
 static void env_query(mm2_env *e)
@@ -290,10 +294,14 @@ static void drain(void)                          /* main loop */
             }
         } else if (p.kind == K_COMBO) {      /* v7.0: séquence de touches synthétiques */
             uint8_t ck[MM2_COMBO_MAX];
-            int cn = mm2_combo_get(p.a, ck);
-            if (cn > 0 && p.a >= 0 && p.a < MM2_ROWS) {
-                uint8_t seq[26];
+            int cn = p.a >= 0 && p.a < MM2_ROWS ? mm2_combo_get(p.a, ck) : 0;
+            if (cn > 0) {
+                uint8_t seq[30];
                 int n = 0;
+                if (mm2_row_get(p.a)->dst == MM2_D_SND) {   /* sound key: en synth d'abord (op1r mx.c) */
+                    seq[n++] = 0x02; seq[n++] = 1;
+                    seq[n++] = 0x02; seq[n++] = 0;
+                }
                 for (int j = 0; j < cn; j++) {
                     int sh = ck[j] >> 7, cd = ck[j] & 0x7F;
                     if (sh) { seq[n++] = 0x26; seq[n++] = 1; }          /* Shift press */
@@ -376,17 +384,24 @@ static void midi_raw(const uint8_t *m, int len)
     else if ((st == 0x80 || st == 0x90) && len >= 3) mm2_note(m[0] & 15, m[1], 0);   /* note-off: avalé si mappée */
 }
 
-/* ---- pipeline de notes: avaler les notes mappées venues du MIDI ---- */
+/* ---- pipeline de notes: avaler les notes mappées; le CLAVIER INTERNE déclenche aussi (v7.1) ---- */
 static void pip_note_on(const op1_note *n, int next)
 {
     int src = op1_note_source();
-    if (OP1_SRC_KIND(src) == OP1_SRC_MIDI && mm2_note_match(OP1_SRC_CH(src), n->note)) return;
+    int kind = OP1_SRC_KIND(src);
+    if (kind == OP1_SRC_MIDI) {                            /* externe: déjà déclenché par midi_raw */
+        if (mm2_note_match(OP1_SRC_CH(src), n->note)) return;
+    } else if (kind == OP1_SRC_KEYS) {                     /* clavier interne: déclenche + avale */
+        if (mm2_note(OP1_SRC_CH(src), n->note, n->velocity)) return;
+    }
     op1_note_on(next, n);
 }
 static void pip_note_off(const op1_note *n, int next)
 {
     int src = op1_note_source();
-    if (OP1_SRC_KIND(src) == OP1_SRC_MIDI && mm2_note_match(OP1_SRC_CH(src), n->note)) return;
+    int kind = OP1_SRC_KIND(src);
+    if ((kind == OP1_SRC_MIDI || kind == OP1_SRC_KEYS) && mm2_note_match(OP1_SRC_CH(src), n->note))
+        return;                                            /* off d'une note avalée: ne rien jouer */
     op1_note_off(next, n);
 }
 
@@ -395,7 +410,6 @@ static uint64_t seen_down;
 static int input(const op1_input *in)
 {
     wire();
-    sh_held = MM_SHIFT;                          /* octet Shift stock (fiable sur hardware) */
     if (in->type == OP1_IN_KEY) {
         if (!mm2_edit_view()) {
             if (in->code == 0x3D && in->pressed && in->mode == 0x0C && !op1_text_entry_open()) {
@@ -415,17 +429,11 @@ static int input(const op1_input *in)
         else if (!(seen_down >> (in->code & 63) & 1)) return 0;   /* release tenue avant l'ouverture */
         seen_down &= ~((uint64_t)1 << (in->code & 63));
         int lb = mm2_edit_learn_state();
-        if (lb == MM2_L_COMBO && in->pressed)
-            mm2_edit_learn_feed_combo(in->code, in->shift);   /* enregistrement du combo */
-        if (mm2_edit_learn_state() != lb) return 1;    /* validation auto (3e touche): avalé */
-        if (mm2_edit_learn_state() == MM2_L_KEY && in->pressed && in->code >= 0x06 && in->code <= 0x09) {
-            int slot = in->code - 0x05 + (in->shift ? 4 : 0);
-            mm2_edit_learn_feed_key(slot);        /* touche sound apprise */
-            char b[10], *e = put_str(b, "touche ");
-            put_num(e, slot);
-            op1_toast(b);                         /* v6.7: feedback learn (demande user) */
-            return 1;                             /* avalée: rien ne bouge pendant l'apprentissage */
+        if (in->pressed && (lb == MM2_L_KEY || lb == MM2_L_COMBO)) {
+            if (lb == MM2_L_KEY) mm2_edit_learn_feed_key_code(in->code, in->shift);
+            else mm2_edit_learn_feed_combo(in->code, in->shift);
         }
+        if (mm2_edit_learn_state() != lb) return 1;    /* capture ou validation auto: avalé */
         int was = mm2_edit_view();
         int consumed = mm2_edit_key(in->code, in->pressed, MM_SHIFT);
         if (mm2_edit_learn_state() == MM2_L_NONE && in->pressed && in->code == 0x3D && MM_SHIFT &&
@@ -486,6 +494,13 @@ static char *put_num(char *e, int v)                       /* 0..255 */
     if (v >= 100) *e++ = (char)('0' + v / 100);
     if (v >= 10) *e++ = (char)('0' + v / 10 % 10);
     *e++ = (char)('0' + v % 10);
+    *e = 0;
+    return e;
+}
+static char *put_hx(char *e, int cd)                       /* 2 chiffres hex (majuscules) */
+{
+    static const char hx[] = "0123456789ABCDEF";
+    *e++ = hx[cd >> 4 & 15]; *e++ = hx[cd & 15];
     *e = 0;
     return e;
 }
@@ -550,22 +565,14 @@ static void overlay(void *r, int32_t screen)
         sf_text(r, OP1_Q10(xs[0]), yq, SF_S, n, 0x600, tc);
         if (i == cur && ls == MM2_L_MIDI) {        /* learn MIDI: LRN dans la colonne source */
             sf_text(r, OP1_Q10(xs[1]), yq, SF_S, "LRN", 0x600, c_black);
-        } else if (i == cur && sh_held) {          /* canal de la ligne, petites capitales */
-            int ch = w->ch ? w->ch : MM2_CH_ALL;
-            if (ch == MM2_CH_ALL) sf_text(r, OP1_Q10(xs[1]), yq, SF_S, "ALL", 0x600, c_black);
-            else {
-                char nb[4];
-                put_num(nb, ch);
-                int xe = sf_text(r, OP1_Q10(xs[1]), yq + SF_DROP, SF_SMALL, "CH", 0x600, c_black);
-                sf_text(r, xe + OP1_Q10(2), yq, SF_S, nb, 0x600, c_black);
-            }
-        } else {
-            char sb[14]; char *se;
-            if (w->stype == MM2_S_NOTE && mm2_note_disp())   /* v6.8: C#4 / DO#4 / numéro */
-                se = put_str(sb, mm2_note_name(w->snum));
-            else { se = put_str(sb, st_names[w->stype]); *se++ = ' '; se = put_num(se, w->snum); }
-            *se = 0;
-            sf_text(r, OP1_Q10(xs[1]), yq, SF_S, sb, 0x600, cur_ ? c_black : cols[1]);
+        } else {                                   /* v7.1: toujours la source — étiquette en
+                                                    * petites capitales (note/cc/pc) + valeur */
+            const uint8_t *sc = cur_ ? c_black : cols[1];
+            int xe = sf_text(r, OP1_Q10(xs[1]), yq + SF_DROP, SF_SMALL, st_names[w->stype], 0x600, sc);
+            char vb[10];
+            if (w->stype == MM2_S_NOTE) put_str(vb, mm2_note_name(w->snum));
+            else put_num(vb, w->snum);
+            sf_text(r, xe + OP1_Q10(3), yq, SF_S, vb, 0x600, sc);
         }
         if (i == cur && ls == MM2_L_KEY)           /* v6.9: learn touche = colonne destination */
             sf_text(r, OP1_Q10(xs[2]), yq, SF_S, "LRN", 0x600, c_black);
@@ -574,16 +581,24 @@ static void overlay(void *r, int32_t screen)
             int cn = mm2_edit_learn_stage(ck);
             if (!cn) sf_text(r, OP1_Q10(xs[2]), yq, SF_S, "LRN", 0x600, c_black);
             else {
-                static const char hx[] = "0123456789ABCDEF";
                 int xe = OP1_Q10(xs[2]);
                 for (int j = 0; j < cn; j++) {
-                    char eb[5]; char *ee = eb;
+                    char eb[6]; char *ee = eb;
                     if (ck[j] & 0x80) *ee++ = 'S';             /* Shift: préfixe S */
-                    int cd = ck[j] & 0x7F;
-                    *ee++ = hx[cd >> 4]; *ee++ = hx[cd & 15]; *ee = 0;
+                    ee = put_hx(ee, ck[j] & 0x7F);
                     xe = sf_text(r, xe, yq + SF_DROP, SF_SMALL, eb, 0x600, c_black) + OP1_Q10(3);
                 }
             }
+        }
+        else if (w->dst == MM2_D_SND) {            /* v7.1: SND affiche la touche apprise */
+            uint8_t ck[MM2_COMBO_MAX];
+            int cn = mm2_combo_get(i, ck);
+            if (cn) {
+                char db[12]; char *de = put_str(db, "SND ");
+                if (ck[0] & 0x80) *de++ = 'S';
+                put_hx(de, ck[0] & 0x7F);
+                sf_text(r, OP1_Q10(xs[2]), yq, SF_S, db, 0x600, cur_ ? c_black : cols[2]);
+            } else sf_text(r, OP1_Q10(xs[2]), yq, SF_S, dstTextOfRow(w), 0x600, cur_ ? c_black : cols[2]);
         }
         else sf_text(r, OP1_Q10(xs[2]), yq, SF_S, dstTextOfRow(w), 0x600, cur_ ? c_black : cols[2]);
         {                                          /* fade: secondes en petites capitales */

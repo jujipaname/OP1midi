@@ -51,6 +51,25 @@ INSTALL
   managed by the workshop. Save a disk-mode backup first (see install-recuperation.md in the repository).
 
 CHANGES
+- v7.1 (2026-10-28): three hardware-feedback fixes:
+  (1) INTERNAL NOTES NOW TRIGGER MAPPINGS: the plugin only listened to external USB MIDI
+  (midi_raw); playing the OP-1 keyboard matched rows and was swallowed SILENTLY (no action).
+  The note pipeline now fires the mapping for OP1_SRC_KEYS notes too (and swallows the
+  matching note-offs). This is why the note->COMBO test did nothing when playing the
+  OP-1 keyboard. External MIDI is unchanged (action fired once by midi_raw, pipeline only
+  swallows). Feature/sequencer notes (OP1_SRC_PLAYER/FEATURE) pass through untouched. The
+  action queue push is now irq-protected (two producers: timer + note pipeline).
+  (2) SND BEHAVES LIKE COMBO: the key learn stores the RAW key code (+Shift bit) in the row
+  (same storage as combos), the white column displays it ("SND 20" / "SND S20", hex) and the
+  replay injects [SYNTH down/up, key down/up] — the op1r mx.c pattern. No more slot
+  derivation from assumed codes: the user can now LEARN each of the 8 sound keys and READ
+  the exact codes off the screen to report them (they will then be hardcoded). Without a
+  learned key the old SYNTH + T_{dnum} fallback stays. Key learn accepts any key except
+  Help, Shift itself and the 4 encoder clicks; it commits on the first key.
+  (3) GREEN COLUMN ALWAYS SHOWS THE SOURCE: "note 60" / "note C#4" / "cc 74" with the label
+  in small caps (the user wants "note" always written, lowercase-look). The Shift-held
+  channel display is removed from the green column (channel is still edited with
+  Shift+green turn).
 - v7.0 (2026-10-28): COMBO destination (user-validated design). ONE "COMBO" entry in the
   destination list, placed FIRST (right after OFF — first destination reached when turning
   the white knob from an empty row). Each row that selects COMBO carries its OWN key

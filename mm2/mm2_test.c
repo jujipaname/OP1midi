@@ -70,6 +70,7 @@ static void reset(void)
 
 int main(void)
 {
+    uint8_t ck[4];
     /* ---- codec v5 (ch + fade par ligne) ---- */
     mm2_row r = { 3, MM2_S_CC, 80, MM2_D_MRK, 45, 2, MM2_FM_12 };
     int p = mm2_row_pack(&r);
@@ -280,10 +281,14 @@ int main(void)
     mm2_edit_learn_feed(MM2_S_CC,44); A2(mm2_edit_learn_state()==MM2_L_NONE&&mm2_row_get(0)->snum==44&&
        mm2_row_get(0)->stype==MM2_S_CC,"learn capture CC44");
     A2(mm2_row_get(0)->dst==MM2_D_SND&&mm2_row_get(0)->ch==MM2_CH_ALL,"learn: garde dst + canal");
-    /* learn touche: Shift+clic blanc arme (dst SND), clic blanc seul désarme */
+    /* learn touche: Shift+clic blanc arme (dst SND), la touche brute est stockée (v7.1) */
     mm2_edit_key(0x3D,1,1); A2(mm2_edit_learn_state()==MM2_L_KEY,"learn touche armé (Shift+clic blanc)");
-    mm2_edit_learn_feed_key(7); A2(mm2_edit_learn_state()==MM2_L_NONE&&mm2_row_get(0)->dnum==7,"learn touche: slot 7");
+    mm2_edit_learn_feed_key_code(0x20,0);
+    A2(mm2_edit_learn_state()==MM2_L_NONE&&mm2_combo_get(0,ck)==1&&ck[0]==0x20&&
+       mm2_row_get(0)->dnum==7,"learn touche: key 0x20 stockée, dnum intact");
     mm2_edit_key(0x3D,1,1); A2(mm2_edit_learn_state()==MM2_L_KEY,"réarmé (touche)");
+    mm2_edit_learn_feed_key_code(0x00,0); A2(mm2_edit_learn_state()==MM2_L_KEY,"Help rejeté du learn");
+    mm2_edit_learn_feed_key_code(0x3C,0); A2(mm2_edit_learn_state()==MM2_L_KEY,"encodeur rejeté du learn");
     mm2_edit_key(0x3D,1,0); A2(mm2_edit_learn_state()==MM2_L_NONE,"clic blanc SEUL: sortie du key learn");
     /* Shift+clic blanc hors SND: rien */
     mm2_edit_turn(2,-1*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_SND&&mm2_row_get(0)->dnum==6,"vert -1: SND7->SND6");
@@ -334,7 +339,6 @@ int main(void)
     /* ---- v7.0: destination COMBO (première de la liste), learn combo, rejeu, persistance ---- */
     reset();
     mm2_edit_open();
-    uint8_t ck[4];
     mm2_edit_turn(2,-1*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_MRM,"blanc -1: OFF->M- (wrap)");
     mm2_edit_turn(2,1*MM2_DETENT,0);  A2(mm2_row_get(0)->dst==MM2_D_OFF,"blanc +1: M-->OFF");
     mm2_edit_turn(2,1*MM2_DETENT,0);  A2(mm2_row_get(0)->dst==MM2_D_COMBO,"blanc +1: OFF->COMBO (premier)");
@@ -372,6 +376,15 @@ int main(void)
     memset((void *)mm2_row_get(0), 0, sizeof(mm2_row));
     mm2_load();
     A2(mm2_combo_get(0,ck)==1&&ck[0]==0x89&&fake_get("mmk0",-1)==0x89,"'mmk0' persisté");
+
+    /* SND avec touche apprise: rejeu via le hook combo (v7.1), fallback slot sinon */
+    reset();
+    mm2_row_edit(0)->stype = MM2_S_CC; mm2_row_edit(0)->snum = 90; mm2_row_edit(0)->dst = MM2_D_SND;
+    mm2_row_edit(0)->dnum = 3;
+    { uint8_t k1 = 0x20; mm2_combo_set(0, &k1, 1); }
+    assert(mm2_cc(0,90,127) && n_combo==1 && combo_len==1 && combo_k[0]==0x20 && n_snd==0);
+    mm2_combo_set(0,0,0);
+    assert(mm2_cc(0,90,0) && mm2_cc(0,90,127) && n_snd==1 && last_snd==3);
 
     printf("mm2_test: ok\n");
     return 0;

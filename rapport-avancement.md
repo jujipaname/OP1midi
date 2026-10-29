@@ -438,6 +438,34 @@ combos. 3 touches max ± Shift.
 Reste: test hardware v7.0 (combo end-to-end), README utilisateur, « 8 sons en dur » quand
 l'utilisateur aura fixé les touches.
 
+## 25. v7.1 — notes internes, SND comme COMBO, colonne verte (29 octobre 2026)
+
+Retours hardware v7.0: le combo note->touches n'a rien déclenché; le user demande l'affichage
+des touches apprises; la colonne verte affichait le canal.
+
+1. **Le midimap n'écoutait que le MIDI externe** — diagnostic du user confirmé: `midi_raw`
+   (USB) déclenchait, mais les notes du **clavier interne** (`OP1_SRC_KEYS`) étaient avalées
+   par le pipeline **sans action**. Fix: `pip_note_on` déclenche `mm2_note(...)` pour KEYS
+   (et avale), MIDI reste « action par midi_raw + avale pipeline », PLAYER/FEATURE passent.
+   `pip_note_off` avale l'off des notes avalées (KEYS inclus). `pq_push` passe sous cli/sti
+   (deux producteurs: timer + pipeline).
+2. **SND comme COMBO**: le learn stocke la touche **brute** (bit7 = Shift) dans la ligne
+   (même stockage que les combos), le blanc affiche « SND 20 » / « SND S20 » (hex), le rejeu
+   injecte [SYNTH, touche] (pattern op1r mx.c). Plus de dérivation de slot à partir de codes
+   supposés: **le user apprend les 8 sound keys et lit les codes à l'écran** pour me les
+   donner (ils seront ensuite en dur). 1re touche = commit immédiat. Fallback SYNTH + T_{dnum}
+   sans touche apprise. `combo_commit` ne touche plus dnum hors COMBO.
+   Indices codes: kb_keys kennel (kn_midi.c:222) = clavier piano {39,13,40,14,41,15,42,28,
+   32,29,22,30,31,23,48,24,49,25,50,51,26,52,27,53}; 0x20 = 32 déc = touche piano — le « key
+   20 » du user est une touche du clavier. midiseq kennel suppose T1..T4 = 0x06..0x09.
+3. **Colonne verte = toujours la source**: étiquette petites capitales (note/cc/pc) + valeur
+   pleine taille; « note » toujours écrit; canal plus affiché (édition Shift+vert intacte).
+- **`op1midi.knl` v7.1** : 21 552 o, bss 400, 17 imports, 0 warning. mm2_test ok (learn par
+  code brut + rejets, SND rejeu via hook combo + fallback slot).
+
+Reste: le user relève les codes des 8 sound keys (à mettre en dur), test interne/externe.
+
+
 
 
 
