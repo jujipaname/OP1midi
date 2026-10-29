@@ -51,6 +51,16 @@ INSTALL
   managed by the workshop. Save a disk-mode backup first (see install-recuperation.md in the repository).
 
 CHANGES
+- v7.5 (2026-10-29): internal-midi reading per row (user request).
+  * Red encoder click now TOGGLES the row's internal-midi reading (kint): when off, the OP-1
+    keyboard plays normally and no longer triggers that row (external midi still does).
+    Indicator: a small i before the source label — red when reading, gray when not.
+  * Shift+red click (delete, legacy) REMOVED — clearing a row is Shift+blue click.
+  * The fade destination stays on Shift+red turn (the red click is taken by the toggle).
+  * Codec: bit 31 (was free) marks internal EXCLUDED (inverted); rows packed before v7.5
+    keep reading the internal keyboard — no format reset ('mmv' unchanged).
+  * Pipeline: internal notes dispatch via mm2_note_int (kint rows only); note-offs swallowed
+    through the same filter, so excluded keys pass to the synth both ways.
 - v7.4 (2026-10-29): mixer mode + fade fixes (user hardware feedback).
   * Mixer mode: markers were dead there — env_query only accepted the tape mode (2); the
     mixer mode (3, mode keys 0x02..0x05 = synth/drum/tape/mixer) and the Shift+mixer overview

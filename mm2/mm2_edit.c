@@ -8,8 +8,9 @@
  *          MUTE 1..4, MRK 1..32, M+, M- — les 4 tapes et les 32 markers défilent); clic seul
  *          = validation du combo; Shift+clic = learn combo on-off (destination COMBO requise:
  *          3 touches max, ± Shift; les touches SND sont en dur côté intégration)
- *   rouge: rotation = fade de la ligne (OFF/1s/2s/8s/32s) / Shift = pistes; clic = pistes aussi
- *          (v7.4: destinations de saut MRK/M+/M-); Shift+clic = supprimer
+ *   rouge: rotation = fade de la ligne (OFF/1s/2s/8s/32s) / Shift = pistes; clic = lecture du
+ *          midi interne de la ligne on-off (v7.5); le Shift+clic (suppression, reliquat) est
+ *          supprimé — vider la ligne se fait au Shift+clic bleu
  * Learn armé (MIDI ou combo): aucune touche ne quitte l'éditeur (Help valide toujours).
  * Rendu côté intégration: colonnes bleu/vert/blanc/rouge alignées aux encodeurs, curseur en
  * surbrillance (fond couleur de colonne, typo noire); la colonne source affiche toujours la
@@ -77,11 +78,11 @@ void mm2_edit_learn_feed_combo(int code, int shift)        /* touche du combo (d
     }
 }
 
-void mm2_edit_delete(void)                                 /* Shift + clic rouge/bleu: ligne -> OFF */
+void mm2_edit_delete(void)                                 /* Shift + clic bleu: ligne -> OFF */
 {
     if (!open) return;
     mm2_row *r = mm2_row_edit(cur);
-    r->ch = 0; r->stype = 0; r->snum = 0; r->dst = MM2_D_OFF; r->dnum = 0; r->fade = 0;
+    r->ch = 0; r->stype = 0; r->snum = 0; r->dst = MM2_D_OFF; r->dnum = 0; r->fade = 0; r->kint = 1;
     mm2_combo_set(cur, 0, 0);                              /* le combo appartient à la ligne */
 }
 
@@ -128,15 +129,12 @@ int mm2_edit_key(int code, int pressed, int shift)
         }
         return 1;                          /* rien d'autre au blanc sans shift (modal) */
     }
-    if (code == 0x3E) {                       /* rouge: Shift = supprimer; clic = pistes du fade
-                                               * (v7.4: destinations de saut MRK/M+/M-) */
-        if (shift) mm2_edit_delete();
-        else {
-            const mm2_row *g = mm2_row_get(cur);
-            if (g->dst >= MM2_D_MRK && g->dst <= MM2_D_MRM) {
-                mm2_row *r = mm2_row_edit(cur);
-                r->fmask = r->fmask >= MM2_FM_MAX ? MM2_FM_ALL : (uint8_t)(r->fmask + 1);
-            }
+    if (code == 0x3E) {                       /* rouge: clic = lecture du midi interne de la ligne
+                                               * on/off (v7.5); Shift+clic: RIEN (reliquat supprimé:
+                                               * vider la ligne = Shift+clic bleu) */
+        if (!shift) {
+            mm2_row *r = mm2_row_edit(cur);
+            r->kint = r->kint ? 0 : 1;
         }
         return 1;
     }

@@ -23,9 +23,11 @@
  *   blanc: rotation = destination en liste plate (COMBO, OFF, SND 1..8, TAPE 1..4, MUTE 1..4,
  *         MRK 1..32, M+, M-); clic seul = validation du learn combo; Shift+clic = learn combo
  *         on-off (la destination doit être COMBO, 3 touches max)
- *   rouge: rotation = fade (OFF/1s/2s/8s/32s) / Shift+rotation = pistes du fade; clic = pistes
- *         du fade aussi (v7.4, destinations de saut MRK/M+/M-: ALL/P1/P2/P3/P4/P12/P34);
- *         Shift+clic = supprimer la ligne *   flèches = pages; Help (0x00) = valider + fermer; touches de mode/T/transport = quitter
+ *   rouge: rotation = fade (OFF/1s/2s/8s/32s) / Shift+rotation = pistes du fade
+ *         (ALL/P1/P2/P3/P4/P12/P34); clic = lecture du midi interne de la ligne on/off
+ *         (v7.5, indicateur i devant la source: rouge actif / gris inactif); le Shift+clic
+ *         (suppression, reliquat v7.4) n'existe plus: vider la ligne = Shift+clic bleu
+ *   flèches = pages; Help (0x00) = valider + fermer; touches de mode/T/transport = quitter
  *   (sauvegarde systématique; sans Shift la touche agit: retour 0) — SAUF learn armé: toutes
  *   les touches sont avalées (retour 1), Help reste valide. */
 #ifndef MM2_H
@@ -50,14 +52,16 @@ enum { MM2_D_OFF = 0, MM2_D_SND = 1, MM2_D_TAPE = 2, MM2_D_MUTE = 3,
 #define MM2_MRK_MAX 32                /* un ensemble partagé de marqueurs (core 3.0.3) */
 #define MM2_COMBO_MAX 3               /* touches par combo (bit7 = Shift, 0 = absent) */
 
-typedef struct { uint8_t ch, stype, snum, dst, dnum, fade, fmask; } mm2_row;
+typedef struct { uint8_t ch, stype, snum, dst, dnum, fade, fmask, kint; } mm2_row;
 /* ch: canal de la ligne, 0 = non réglé (traité comme ALL), 1..16, MM2_CH_ALL;
  * stype: MM2_S_*; snum 0..127; dst: MM2_D_*; dnum 0..255 (plage validée par destination:
  * SND 1..8, TAPE 1..4, MUTE 1..4, MRK 1..MM2_MRK_MAX, M+/M-, OFF et COMBO sans paramètre
  * — pour COMBO, dnum = nombre de touches du combo, pur affichage);
  * fade: 0..4 (OFF/1s/2s/8s/32s) — utilisé par MUTE/MRK/M+/M- uniquement (côté intégration);
  * fmask: MM2_FM_* — les pistes que le fade affecte (sauts MRK/M+/M-; un MUTE fond la piste
- * mute elle-même, le masque ne s'applique pas) */
+ * mute elle-même, le masque ne s'applique pas);
+ * kint: 1 = la ligne lit aussi le midi INTERNE (clavier de l'OP-1, notes — v7.5), 0 = le
+ * clavier joue normalement (la ligne ne réagit qu'au midi externe). CC/PC restent externes. */
 
 /* ---- ABI d'intégration (définies ici, assignées par l'hôte au démarrage; 0 = action ignorée) ---- */
 extern int  (*mm2_setting_get)(const char *key, int dflt);
@@ -72,7 +76,9 @@ extern void (*mm2_act_combo)(int row, const uint8_t *keys, int n);   /* 1..3 ent
 typedef struct { int tape_mode, raw_state, punch, markers; } mm2_env;
 extern void (*mm2_env_query)(mm2_env *e);   /* gardes: raw_state 3 arrêt / 10 lecture autorisés */
 
-/* ---- cycle de vie / persistance ('mmv', 'mmen', 'mmnd', 'mmr0'..'mmr15') ---- */
+/* ---- cycle de vie / persistance ('mmv', 'mmen', 'mmnd', 'mmr0'..'mmr15') ----
+ * Codec de ligne: bit 31 = lecture interne EXCLUE (kint inversé: les lignes packées avant
+ * v7.5, bit 31 = 0, continuent de lire le clavier interne — pas de reset de format). */
 void mm2_load(void);
 void mm2_save(void);
 int  mm2_enabled(void);
@@ -89,6 +95,9 @@ int  mm2_cc(int ch, int cc, int v);         /* ch 0..15 (octet de statut & 15) *
 int  mm2_pc(int ch, int num);
 int  mm2_note(int ch, int note, int vel);   /* note-on; vel > 0 déclenche; vel <= 0 mappée: avalé */
 int  mm2_note_match(int ch, int note);      /* 1 si une ligne NOTE correspond (swallow pipeline) */
+int  mm2_note_int(int ch, int note, int vel);          /* idem, midi INTERNE: ne déclenche que
+                                                        * les lignes kint (v7.5) */
+int  mm2_note_match_int(int ch, int note);             /* match interne (aval note-off clavier) */
 
 /* ---- éditeur ---- */
 void mm2_edit_open(void);

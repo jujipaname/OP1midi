@@ -71,13 +71,19 @@ static void reset(void)
 int main(void)
 {
     uint8_t ck[4];
-    /* ---- codec v5 (ch + fade par ligne) ---- */
-    mm2_row r = { 3, MM2_S_CC, 80, MM2_D_MRK, 45, 2, MM2_FM_12 };
+    /* ---- codec v5 (ch + fade par ligne) + kint (bit31 inversé, v7.5) ---- */
+    mm2_row r = { 3, MM2_S_CC, 80, MM2_D_MRK, 45, 2, MM2_FM_12, 1 };
     int p = mm2_row_pack(&r);
     mm2_row q = mm2_row_unpack(p);
     assert(q.ch == 3 && q.stype == MM2_S_CC && q.snum == 80 && q.dst == MM2_D_MRK &&
-           q.dnum == 45 && q.fade == 2);
-    mm2_row bad = { 0, 9, 0, 0, 0, 0, 0 };
+           q.dnum == 45 && q.fade == 2 && q.kint == 1);
+    assert((p & 0x7FFFFFFF) == p);                         /* bit31 = 0: lit l'interne */
+    mm2_row rk = r; rk.kint = 0;
+    int pk = mm2_row_pack(&rk);
+    assert(pk < 0 && mm2_row_unpack(pk).kint == 0);        /* exclu: bit31 posé (valeur négative) */
+    mm2_row old = mm2_row_unpack(20);                      /* ligne pré-v7.5 (bit31=0): lit l'interne */
+    assert(old.kint == 1);
+    mm2_row bad = { 0, 9, 0, 0, 0, 0, 0, 0 };
     assert(mm2_row_pack(&bad) == -1);
     mm2_row back = mm2_row_unpack(7 << 14);                /* dst 7 = COMBO: valide désormais */
     assert(back.dst == MM2_D_COMBO && back.snum == 0 && back.dnum == 0);
@@ -140,6 +146,16 @@ int main(void)
     assert(mm2_note(0, 60, 100) && n_mnext == 2);          /* marche aussi en lecture */
     ENV.raw_state = 3;
     ENV.markers = 0; assert(mm2_note(0, 60, 100) && n_mnext == 2); ENV.markers = 5;
+
+    /* ---- v7.5: midi interne (mm2_note_int) ne déclenche que les lignes kint ---- */
+    reset();
+    mm2_row_edit(0)->stype = MM2_S_NOTE; mm2_row_edit(0)->snum = 60; mm2_row_edit(0)->dst = MM2_D_MUTE;
+    mm2_row_edit(0)->dnum = 1; mm2_row_edit(0)->kint = 0;  /* le clavier joue normalement */
+    assert(mm2_note(0, 60, 100) && n_mute == 1);           /* externe: la ligne déclenche quand même */
+    assert(!mm2_note_int(0, 60, 100) && n_mute == 1);      /* interne: pas de déclenchement */
+    assert(!mm2_note_match_int(0, 60) && mm2_note_match(0, 60));   /* off interne passe au synthé */
+    mm2_row_edit(0)->kint = 1;
+    assert(mm2_note_int(0, 60, 100) && n_mute == 2 && mm2_note_match_int(0, 60));
 
     /* ---- SND / TAPE / MUTE + plages ---- */
     reset();
@@ -278,7 +294,7 @@ int main(void)
     mm2_edit_key(0x3C,1,1); A2(mm2_edit_learn_state()==MM2_L_MIDI,"réarmé");
     mm2_edit_key(0x3C,1,0); A2(mm2_edit_learn_state()==MM2_L_NONE,"clic vert SEUL: sortie du learn");
     mm2_edit_key(0x3C,1,1); A2(mm2_edit_learn_state()==MM2_L_MIDI,"réarmé (feed)");
-    mm2_edit_learn_feed(MM2_S_CC,44); A2(mm2_edit_learn_state()==MM2_L_NONE&&mm2_row_get(0)->snum==44&&
+mm2_edit_learn_feed(MM2_S_CC,44); A2(mm2_edit_learn_state()==MM2_L_NONE&&mm2_row_get(0)->snum==44&&
        mm2_row_get(0)->stype==MM2_S_CC,"learn capture CC44");
     A2(mm2_row_get(0)->dst==MM2_D_SND&&mm2_row_get(0)->ch==MM2_CH_ALL,"learn: garde dst + canal");
     /* v7.2: touches SND en dur côté intégration — plus de learn touche */
@@ -287,25 +303,16 @@ int main(void)
     mm2_edit_turn(2,-1*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_SND&&mm2_row_get(0)->dnum==6,"vert -1: SND7->SND6");
     mm2_edit_turn(2,3*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_TAPE&&mm2_row_get(0)->dnum==1,"vert +3: SND6->TAPE 1 (hors SND)");
     mm2_edit_key(0x3D,1,1); A2(mm2_edit_learn_state()==MM2_L_NONE,"Shift+clic blanc hors SND: pas de key learn");
-    /* Shift+clic rouge: supprimer */
-    mm2_edit_key(0x3E,1,1);
-    A2(mm2_row_get(0)->dst==MM2_D_OFF&&mm2_row_get(0)->snum==0&&mm2_row_get(0)->stype==0&&
-       mm2_row_get(0)->dnum==0&&mm2_row_get(0)->ch==0&&mm2_row_get(0)->fade==0&&mm2_row_get(0)->fmask==0,
-       "Shift+clic rouge: ligne supprimée (tout à zéro)");
-    mm2_edit_key(0x3E,1,0);                                /* release: avalée */
-    A2(mm2_edit_key(0x3E,1,0)==1&&mm2_edit_view(),"rouge clic sans shift: consommé (rien sans shift)");
-    /* v7.4: clic rouge = pistes du fade (destinations de saut MRK/M+/M-) */
-    mm2_row_edit(0)->dst = MM2_D_MRK; mm2_row_edit(0)->dnum = 1;
-    mm2_edit_key(0x3E,1,0); A2(mm2_row_get(0)->fmask==MM2_FM_1,"clic rouge MRK: ALL->P1");
-    mm2_edit_key(0x3E,1,0); mm2_edit_key(0x3E,1,0); mm2_edit_key(0x3E,1,0);
-    A2(mm2_row_get(0)->fmask==MM2_FM_4,"clic rouge x3: P1->P2->P3->P4");
-    mm2_edit_key(0x3E,1,0); A2(mm2_row_get(0)->fmask==MM2_FM_12,"clic rouge: P4->P12");
-    mm2_edit_key(0x3E,1,0); mm2_edit_key(0x3E,1,0);
-    A2(mm2_row_get(0)->fmask==MM2_FM_ALL,"clic rouge x2: P12->P34->ALL (wrap)");
-    mm2_row_edit(0)->dst = MM2_D_MUTE; mm2_row_edit(0)->dnum = 2; uint8_t fm_keep = mm2_row_get(0)->fmask;
-    mm2_edit_key(0x3E,1,0); A2(mm2_row_get(0)->fmask==fm_keep,"clic rouge sur MUTE: rien (la piste fond elle-même)");
-    mm2_row_edit(0)->dst = MM2_D_SND; mm2_row_edit(0)->dnum = 1;
-    mm2_edit_key(0x3E,1,0); A2(mm2_row_get(0)->fmask==fm_keep,"clic rouge sur SND: rien (pas de fade)");
+    mm2_edit_key(0x3E,0,0);                                /* release */
+    /* v7.5: clic rouge = lecture du midi interne on/off; Shift+clic rouge: RIEN (reliquat);
+     * Shift+rotation rouge = pistes du fade */
+    A2(mm2_row_get(0)->kint==1,"ligne neuve: lit l'interne");
+    mm2_edit_key(0x3E,1,0); A2(mm2_row_get(0)->kint==0,"clic rouge: interne off");
+    mm2_edit_key(0x3E,1,0); A2(mm2_row_get(0)->kint==1,"clic rouge: interne on");
+    mm2_edit_key(0x3E,1,1); A2(mm2_row_get(0)->kint==1&&mm2_edit_view(),"Shift+clic rouge: rien (reliquat supprimé)");
+    mm2_edit_turn(3,1*MM2_DETENT,1); A2(mm2_row_get(0)->fmask==MM2_FM_1,"Shift+rot rouge: ALL->P1");
+    mm2_edit_turn(3,6*MM2_DETENT,1); A2(mm2_row_get(0)->fmask==MM2_FM_ALL,"Shift+rot rouge +6: wrap -> ALL");
+    mm2_edit_turn(3,-1*MM2_DETENT,1); A2(mm2_row_get(0)->fmask==MM2_FM_34,"Shift+rot rouge -1: ALL->P34");
     /* clic bleu: mode d'affichage des notes (numéro -> anglais -> solfège -> numéro) */
     A2(mm2_edit_key(0x3B,1,0)==1&&mm2_edit_view()&&mm2_note_disp()==1,"bleu clic: numéro->anglais");
     A2(!strcmp(mm2_note_name(61),"C#4")&&!strcmp(mm2_note_name(60),"C4")&&!strcmp(mm2_note_name(0),"C-1")&&
@@ -318,8 +325,10 @@ int main(void)
     /* Shift+clic bleu: vider la ligne */
     mm2_row_edit(0)->dst = MM2_D_SND; mm2_row_edit(0)->dnum = 3; mm2_row_edit(0)->stype = MM2_S_CC;
     mm2_row_edit(0)->snum = 40; mm2_row_edit(0)->ch = 5; mm2_row_edit(0)->fade = 2;
+    mm2_row_edit(0)->kint = 0;
     A2(mm2_edit_key(0x3B,1,1)==1&&mm2_row_get(0)->dst==MM2_D_OFF&&mm2_row_get(0)->snum==0&&
-       mm2_row_get(0)->ch==0&&mm2_row_get(0)->fade==0,"Shift+clic bleu: ligne vidée");
+       mm2_row_get(0)->ch==0&&mm2_row_get(0)->fade==0&&mm2_row_get(0)->kint==1,
+       "Shift+clic bleu: ligne vidée (kint au défaut)");
     /* learn armé: aucune touche ne quitte l'éditeur (v6.8); clic blanc seul valide (v7.2) */
     mm2_edit_turn(2,1*MM2_DETENT,0);
     A2(mm2_row_get(0)->dst==MM2_D_COMBO,"ligne réassignée: COMBO");

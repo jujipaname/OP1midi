@@ -639,3 +639,19 @@ de pistes du fade au clic rouge.
    destination en petites capitales (ALL/P1/P2/P3/P4/P12/P34), **clic rouge** = cycle
    (Shift+rotation inchangé); MUTE: secondes seules (l'unité s).
 - **`op1midi.knl` v7.4** : 21 180 o, 0 warning. mm2_test ok (clic rouge testé sur MRK/MUTE/SND).
+
+## 29. v7.5 — lecture du midi interne par ligne (29 octobre 2026)
+
+Demande: Shift+clic rouge = reliquat à supprimer; clic rouge = activer/désactiver la lecture
+du midi interne; petit i devant la source (rouge actif / gris sinon); destination du fade par
+Shift+rotation rouge.
+
+1. **kint par ligne** (bit 31 du codec, INVERSÉ: 0 = lit — les lignes pré-v7.5 gardent la
+   lecture interne, pas de reset 'mmv'). Clic rouge: toggle de la ligne du curseur.
+2. **Pipeline**: notes internes -> `mm2_note_int`/`mm2_note_match_int` (lignes kint only);
+   une ligne kint=0 voit sa touche jouer le synthé normalement (on et off passent).
+3. **Éditeur v13**: i (petites capitales) devant la source, rouge/gris (indépendant de la
+   surbrillance); Shift+clic rouge = rien; Shift+rotation rouge = pistes du fade (inchangé).
+4. Tests: codec bit31 (pack négatif, unpack pré-v7.5 = lit), dispatch interne/externe,
+   toggle + reliquat + Shift+rotation, suppression (Shift+clic bleu) remet kint au défaut.
+- **`op1midi.knl` v7.5** : 21 492 o, 0 warning. mm2_test ok.

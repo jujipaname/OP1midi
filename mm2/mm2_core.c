@@ -40,7 +40,8 @@ int mm2_row_pack(const mm2_row *r)
         r->dst > MM2_D_MAX || r->fade > 4 || r->fmask > MM2_FM_MAX) return -1;
     return (int)((uint32_t)r->ch | (uint32_t)r->stype << 5 | (uint32_t)r->snum << 7 |
                  (uint32_t)r->dst << 14 | (uint32_t)r->dnum << 17 | (uint32_t)r->fade << 25 |
-                 (uint32_t)r->fmask << 28);
+                 (uint32_t)r->fmask << 28 | (uint32_t)(r->kint ? 0 : 1) << 31);   /* bit31:
+                                            * interne EXCLU — les lignes v7.4 (bit 0) lisent */
 }
 
 mm2_row mm2_row_unpack(int v)
@@ -54,6 +55,7 @@ mm2_row mm2_row_unpack(int v)
     r.dnum = (uint8_t)(u >> 17 & 255);
     r.fade = (uint8_t)(u >> 25 & 7);
     r.fmask = (uint8_t)(u >> 28 & 7);
+    r.kint = !(u >> 31 & 1);                   /* bit31 = 0 (lignes pré-v7.5): lit l'interne */
     if (r.ch > MM2_CH_ALL || r.stype > MM2_S_MAX || r.dst > MM2_D_MAX || r.fade > 4 ||
         r.fmask > MM2_FM_MAX) {
         r.ch = r.stype = r.snum = r.dnum = r.fade = r.fmask = 0; r.dst = MM2_D_OFF;
@@ -197,11 +199,12 @@ static void mm2_run(int i)
     (void)ch;
 }
 
-static int mm2_match(int ch, int stype, int num, int *hit)
+static int mm2_match(int ch, int stype, int num, int *hit, int intern)
 {
     for (int i = 0; i < MM2_ROWS; i++) {
         const mm2_row *r = &rows[i];
         if (!r->dst || r->stype != stype || r->snum != num) continue;
+        if (intern && !r->kint) continue;                  /* v7.5: ligne non exposée au clavier interne */
         int rc = r->ch ? r->ch : MM2_CH_ALL;               /* 0 = non réglé: ALL */
         if (rc != MM2_CH_ALL && rc != ch + 1) continue;
         *hit = i;
@@ -214,7 +217,7 @@ int mm2_cc(int ch, int cc, int v)
 {
     int i;
     if (!mm_en || cc < 0 || cc > 127 || v < 0 || v > 127) return 0;
-    if (!mm2_match(ch, MM2_S_CC, cc, &i)) return 0;
+    if (!mm2_match(ch, MM2_S_CC, cc, &i, 0)) return 0;
     int fire = v >= 64 && prev[i] < 64;
     prev[i] = (uint8_t)v;
     if (fire) mm2_run(i);
@@ -225,7 +228,7 @@ int mm2_pc(int ch, int num)
 {
     int i;
     if (!mm_en || num < 0 || num > 127) return 0;
-    if (!mm2_match(ch, MM2_S_PC, num, &i)) return 0;
+    if (!mm2_match(ch, MM2_S_PC, num, &i, 0)) return 0;
     mm2_run(i);
     return 1;
 }
@@ -234,15 +237,32 @@ int mm2_note_match(int ch, int note)
 {
     int i;
     if (!mm_en || note < 0 || note > 127) return 0;
-    return mm2_match(ch, MM2_S_NOTE, note, &i);
+    return mm2_match(ch, MM2_S_NOTE, note, &i, 0);
+}
+
+int mm2_note_match_int(int ch, int note)                   /* midi interne: lignes kint seulement */
+{
+    int i;
+    if (!mm_en || note < 0 || note > 127) return 0;
+    return mm2_match(ch, MM2_S_NOTE, note, &i, 1);
 }
 
 int mm2_note(int ch, int note, int vel)
 {
     int i;
     if (!mm_en || note < 0 || note > 127) return 0;
-    if (vel <= 0) return mm2_match(ch, MM2_S_NOTE, note, &i);   /* note-off mappée: avalé, rien */
-    if (!mm2_match(ch, MM2_S_NOTE, note, &i)) return 0;
+    if (vel <= 0) return mm2_match(ch, MM2_S_NOTE, note, &i, 0);   /* note-off mappée: avalé, rien */
+    if (!mm2_match(ch, MM2_S_NOTE, note, &i, 0)) return 0;
+    mm2_run(i);
+    return 1;
+}
+
+int mm2_note_int(int ch, int note, int vel)                /* clavier interne (v7.5) */
+{
+    int i;
+    if (!mm_en || note < 0 || note > 127) return 0;
+    if (vel <= 0) return mm2_match(ch, MM2_S_NOTE, note, &i, 1);
+    if (!mm2_match(ch, MM2_S_NOTE, note, &i, 1)) return 0;
     mm2_run(i);
     return 1;
 }

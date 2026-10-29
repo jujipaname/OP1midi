@@ -4,24 +4,25 @@
  * Entree: Shift + Help (mode clock) -> T3 (settings) -> rangée "MIDI MAP" (op1_switch
  * enregistré au 1er OP1_EV_SERVICE après le BOOT_DONE (après midiseq): 2e rangée = blanche):
  * tourner = ON/OFF global, appui blanc = ouvre l'éditeur.
- * Éditeur v12 (overlay modal sur voile + panneau noir, police vectorielle kennel, majuscules;
+ * Éditeur v13 (overlay modal sur voile + panneau noir, police vectorielle kennel, majuscules;
  * les étiquettes et unités — note, cc, pc, ch, s — en petites capitales, la police n'a que
  * des majuscules):
  *   bleu: rotation = curseur (16 slots, la page suit); clic = affichage des notes
  *         (numéro / anglais C#4 / solfège DO#4 — global, 'mmnd'); Shift+clic = vider
  *         la ligne
  *   vert: rotation = n° source / Shift+rotation = canal de ligne (la colonne source affiche
- *         TOUJOURS la source: « note 60 », « note C#4 », « cc 74 » — v7.1: plus de canal
- *         affiché); clic = type source (NOTE/CC/PC); Shift+clic = learn MIDI on/off
+ *         TOUJOURS la source: « i note 60 », « i note C#4 », « i cc 74 » — v7.5: un petit i
+ *         devant = lecture du midi interne de la ligne, rouge si active, gris sinon);
+ *         clic = type source (NOTE/CC/PC); Shift+clic = learn MIDI on/off
  *   blanc: rotation = destination + n° en liste plate (COMBO en premier, OFF, SND 1..8,
  *         TAPE 1..4, MUTE 1..4, MRK 1..32, M+, M-); clic seul = validation du combo;
  *         Shift+clic = learn combo on/off (la destination doit être COMBO; 3 touches max
  *         ± Shift, 3e touche = validation auto; armé: le blanc affiche les touches,
  *         ex « S06 21 »)
- *   rouge: rotation = fade (OFF/1s/2s/8s/32s) / clic et Shift+rotation = pistes du fade
- *         (v7.4: destinations de saut MRK/M+/M-, affichées en petites capitales: ALL, P1..
- *         P4, P12, P34; un MUTE fond la piste mute elle-même); Shift+clic = supprimer
- *         la ligne; la case fade reste VIDE pour les destinations sans fade (v7.4)
+ *   rouge: rotation = fade (OFF/1s/2s/8s/32s) / Shift+rotation = pistes du fade
+ *         (ALL/P1/P2/P3/P4/P12/P34; un MUTE fond la piste mute elle-même); clic = lecture
+ *         du midi interne de la ligne on/off (v7.5); Shift+clic = RIEN (reliquat supprimé);
+ *         la case fade reste VIDE pour les destinations sans fade (v7.4)
  *   fleches = pages; sorties (sauvegarde systématique): Help (Shift ou non), touches de mode /
  *   T1..T4 / transport (la touche agit ensuite sauf Shift tenu) — SAUF learn armé: toutes les
  *   touches sont avalées (Help valide toujours; clic blanc seul sort du learn touche).
@@ -40,17 +41,19 @@
  * switch), MRK+/MRK- (saut, wrap).
  *
  * Fade (rotation rouge: OFF/1s/2s/8s/32s): en lecture, tout saut de marker (MRK/M+/M-) fond
- * les pistes choisies (clic rouge ou Shift+rotation: ALL/P1/P2/P3/P4/P12/P34) des volumes live
+ * les pistes choisies (Shift+rotation rouge: ALL/P1/P2/P3/P4/P12/P34) des volumes live
  * 0xFF801928 + gammes 0xFF8018CC (R246) vers 0, saute au silence (main loop), puis remonte et
  * restaure. MUTE: la piste fond elle-même (les autres pistes ne bougent pas), le byte mute
  * bascule au silence, volumes restaurés; unmute direct. Piloté par tick (audio), saut exécuté
  * sur la main loop; STOP pendant un fade: saut annulé, volumes restaurés.
+ * v7.5: clic rouge = lecture du midi interne de la ligne (kint: le clavier de l'OP-1 déclenche
+ * la ligne ou joue normalement; petit i rouge/gris devant la source); Shift+clic rouge
+ * (suppression, reliquat) supprimé — vider = Shift+clic bleu; le bit 31 du codec (libre)
+ * marque l'exclusion, les lignes déjà packées gardent la lecture interne (pas de reset).
  * v7.4: les vues de bande tape (2), mixer (3) et mixov Shift+mixer (0x0D) autorisent les
  * sauts/fades — le mode mixer seul bloquait tout (env_query tape-only); M+/M-: fade et masque
  * étaient inversés dans la file (durée = masque!); fade_mask n'était JAMAIS assigné (toujours
  * ALL); MUTE ignore désormais le fade sauf en lecture (fondu de la piste).
- * v7.3: le saut ne presse PLAY que si la bande est arrêtée (la touche PLAY est un toggle:
- * la presser en lecture arrêtait la bande au lieu de continuer depuis le marker).
  * Les CC mappés sont retirés du chemin clés/encodeurs (op1_midi_take_cc); les notes mappées
  * sont avalées dans le pipeline de notes (source MIDI uniquement). */
 #ifndef OP1_HOST
@@ -404,7 +407,8 @@ static void midi_raw(const uint8_t *m, int len)
     else if ((st == 0x80 || st == 0x90) && len >= 3) mm2_note(m[0] & 15, m[1], 0);   /* note-off: avalé si mappée */
 }
 
-/* ---- pipeline de notes: avaler les notes mappées; le CLAVIER INTERNE déclenche aussi (v7.1) ---- */
+/* ---- pipeline de notes: avaler les notes mappées; le CLAVIER INTERNE déclenche aussi (v7.1),
+ * sauf pour les lignes kint = 0 (v7.5: elles jouent normalement) ---- */
 static void pip_note_on(const op1_note *n, int next)
 {
     int src = op1_note_source();
@@ -412,7 +416,7 @@ static void pip_note_on(const op1_note *n, int next)
     if (kind == OP1_SRC_MIDI) {                            /* externe: déjà déclenché par midi_raw */
         if (mm2_note_match(OP1_SRC_CH(src), n->note)) return;
     } else if (kind == OP1_SRC_KEYS) {                     /* clavier interne: déclenche + avale */
-        if (mm2_note(OP1_SRC_CH(src), n->note, n->velocity)) return;
+        if (mm2_note_int(OP1_SRC_CH(src), n->note, n->velocity)) return;
     }
     op1_note_on(next, n);
 }
@@ -420,7 +424,8 @@ static void pip_note_off(const op1_note *n, int next)
 {
     int src = op1_note_source();
     int kind = OP1_SRC_KIND(src);
-    if ((kind == OP1_SRC_MIDI || kind == OP1_SRC_KEYS) && mm2_note_match(OP1_SRC_CH(src), n->note))
+    if (kind == OP1_SRC_MIDI && mm2_note_match(OP1_SRC_CH(src), n->note)) return;
+    if (kind == OP1_SRC_KEYS && mm2_note_match_int(OP1_SRC_CH(src), n->note))
         return;                                            /* off d'une note avalée: ne rien jouer */
     op1_note_off(next, n);
 }
@@ -469,7 +474,8 @@ static int input(const op1_input *in)
  * randomiser du kennel), colonnes aux couleurs des encodeurs, curseur en rouge ---- */
 static const uint8_t c_red[4] = { 0xFF, 0x4E, 0x3F, 0xFF }, c_white[4] = { 0xFF, 0xFF, 0xFF, 0xFF },
                      c_green[4] = { 0x00, 0xED, 0x95, 0xFF }, c_black[4] = { 0, 0, 0, 0xFF },
-                     c_blue[4] = { 0x4D, 0x9E, 0xFF, 0xFF };
+                     c_blue[4] = { 0x4D, 0x9E, 0xFF, 0xFF },
+                     c_gray[4] = { 0x90, 0x90, 0x90, 0xFF };
 #define PN_X0 6
 #define PN_X1 314
 #define PN_Y0 4
@@ -580,10 +586,11 @@ static void overlay(void *r, int32_t screen)
         sf_text(r, OP1_Q10(xs[0]), yq, SF_S, n, 0x600, tc);
         if (i == cur && ls == MM2_L_MIDI) {        /* learn MIDI: LRN dans la colonne source */
             sf_text(r, OP1_Q10(xs[1]), yq, SF_S, "LRN", 0x600, c_black);
-        } else {                                   /* v7.1: toujours la source — étiquette en
-                                                    * petites capitales (note/cc/pc) + valeur */
+        } else {                                   /* v7.1: toujours la source — v7.5: i (lecture du
+                                                    * midi interne) devant, rouge actif / gris sinon */
             const uint8_t *sc = cur_ ? c_black : cols[1];
-            int xe = sf_text(r, OP1_Q10(xs[1]), yq + SF_DROP, SF_SMALL, st_names[w->stype], 0x600, sc);
+            sf_text(r, OP1_Q10(xs[1]), yq + SF_DROP, SF_SMALL, "I", 0x600, w->kint ? c_red : c_gray);
+            int xe = sf_text(r, OP1_Q10(xs[1] + 9), yq + SF_DROP, SF_SMALL, st_names[w->stype], 0x600, sc);
             char vb[10];
             if (w->stype == MM2_S_NOTE) put_str(vb, mm2_note_name(w->snum));
             else put_num(vb, w->snum);
