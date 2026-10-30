@@ -6,7 +6,9 @@
  * 16 lignes de mapping. Chaque ligne: (type source NOTE/CC/PC, n° source) -> (destination, n°).
  * Destinations: COMBO (séquence de 1..3 touches, ± Shift, injectées en touches synthétiques),
  * SND 1..8 (touches en dur côté intégration), TAPE 1..4,
- * MUTE 1..4, MRK 1..32, M+, M-. Tout est trigger: CC front montant >= 64
+ * MUTE 1..4, MRK 1..32, M+, M-, LOOP = décalages gauche/droite de la région de boucle (v7.5/
+ * 1.7.5: op1_tape_loop_get/set, pas = largeur/16 min 0x1400 échantillons) et boucle on/off.
+ * Tout est trigger: CC front montant >= 64
  * (pas de répétition tant que tenu), NOTE = note-on avec vélocité > 0, PC = chaque message.
  * Première ligne correspondante gagnante. Canal MIDI global ('mmch': 0 off / 1..16 / 17 ALL).
  * Ligne inactive: dst == MM2_D_OFF. Réglage fade 'mmfade' (0 off, 1 = 1 s, 2 = 2 s, 3 = 8 s,
@@ -21,12 +23,15 @@
  *   vert: rotation = n° source / Shift+rotation = canal de ligne; clic = type NOTE/CC/PC;
  *         Shift+clic = learn MIDI on-off (le premier NOTE/CC/PC capture)
  *   blanc: rotation = destination en liste plate (COMBO, OFF, SND 1..8, TAPE 1..4, MUTE 1..4,
- *         MRK 1..32, M+, M-); clic seul = validation du learn combo; Shift+clic = learn combo
- *         on-off (la destination doit être COMBO, 3 touches max)
+ *         MRK 1..32, M+, M-, L> L< LOP); clic seul = validation du learn combo; Shift+clic =
+ *         learn combo on-off (la destination doit être COMBO, 3 touches max)
  *   rouge: rotation = fade (OFF/1s/2s/8s/32s) / Shift+rotation = pistes du fade
  *         (ALL/P1/P2/P3/P4/P12/P34); clic = lecture du midi interne de la ligne on/off
  *         (v7.5, indicateur i devant la source: rouge actif / gris inactif); le Shift+clic
  *         (suppression, reliquat v7.4) n'existe plus: vider la ligne = Shift+clic bleu
+ *         — fade exclu des destinations LOOP (pas un saut de lecture)
+ *   affichage LOOP: pictogrammes vectoriels dans la colonne blanche (flèche droite/gauche,
+ *   icône de boucle) — v7.5; dessinés par l'intégration.
  *   flèches = pages; Help (0x00) = valider + fermer; touches de mode/T/transport = quitter
  *   (sauvegarde systématique; sans Shift la touche agit: retour 0) — SAUF learn armé: toutes
  *   les touches sont avalées (retour 1), Help reste valide. */
@@ -42,21 +47,23 @@
 enum { MM2_FM_ALL = 0, MM2_FM_1 = 1, MM2_FM_2 = 2, MM2_FM_3 = 3, MM2_FM_4 = 4,
        MM2_FM_12 = 5, MM2_FM_34 = 6 };
 #define MM2_FM_MAX  6
-#define MM2_FMT     4                 /* version du format des lignes ('mmv') */
+#define MM2_FMT     5                 /* version du format des lignes ('mmv'; v5 = 1.7.5+: dst sur
+                                     * 4 bits, dnum sur 7 — les lignes v4 sont remises à zéro) */
 
 enum { MM2_S_NOTE = 0, MM2_S_CC = 1, MM2_S_PC = 2 };
 enum { MM2_D_OFF = 0, MM2_D_SND = 1, MM2_D_TAPE = 2, MM2_D_MUTE = 3,
-       MM2_D_MRK = 4, MM2_D_MRP = 5, MM2_D_MRM = 6, MM2_D_COMBO = 7 };
+       MM2_D_MRK = 4, MM2_D_MRP = 5, MM2_D_MRM = 6, MM2_D_COMBO = 7,
+       MM2_D_LSR = 8, MM2_D_LSL = 9, MM2_D_LOP = 10 };
 #define MM2_S_MAX   2
-#define MM2_D_MAX   7
+#define MM2_D_MAX   10
 #define MM2_MRK_MAX 32                /* un ensemble partagé de marqueurs (core 3.0.3) */
 #define MM2_COMBO_MAX 3               /* touches par combo (bit7 = Shift, 0 = absent) */
 
 typedef struct { uint8_t ch, stype, snum, dst, dnum, fade, fmask, kint; } mm2_row;
 /* ch: canal de la ligne, 0 = non réglé (traité comme ALL), 1..16, MM2_CH_ALL;
- * stype: MM2_S_*; snum 0..127; dst: MM2_D_*; dnum 0..255 (plage validée par destination:
+ * stype: MM2_S_*; snum 0..127; dst: MM2_D_*; dnum 0..127 (plage validée par destination:
  * SND 1..8, TAPE 1..4, MUTE 1..4, MRK 1..MM2_MRK_MAX, M+/M-, OFF et COMBO sans paramètre
- * — pour COMBO, dnum = nombre de touches du combo, pur affichage);
+ * — pour COMBO, dnum = nombre de touches du combo, pur affichage; LOOP sans paramètre);
  * fade: 0..4 (OFF/1s/2s/8s/32s) — utilisé par MUTE/MRK/M+/M- uniquement (côté intégration);
  * fmask: MM2_FM_* — les pistes que le fade affecte (sauts MRK/M+/M-; un MUTE fond la piste
  * mute elle-même, le masque ne s'applique pas);
@@ -72,13 +79,18 @@ extern void (*mm2_act_mute)(int track, int fade, int fmask);
 extern void (*mm2_act_marker)(int local, int fade, int fmask);
 extern void (*mm2_act_mnext)(int fade, int fmask);
 extern void (*mm2_act_mprev)(int fade, int fmask);
+extern void (*mm2_act_loop)(int kind);      /* 0 = décaler la boucle à gauche, 1 = à droite
+                                             * (v7.5: op1_tape_loop_get/set côté intégration),
+                                             * 2 = boucle on-off (clavier) */
 extern void (*mm2_act_combo)(int row, const uint8_t *keys, int n);   /* 1..3 entrées (bit7 = Shift) */
 typedef struct { int tape_mode, raw_state, punch, markers; } mm2_env;
 extern void (*mm2_env_query)(mm2_env *e);   /* gardes: raw_state 3 arrêt / 10 lecture autorisés */
 
 /* ---- cycle de vie / persistance ('mmv', 'mmen', 'mmnd', 'mmr0'..'mmr15') ----
- * Codec de ligne: bit 31 = lecture interne EXCLUE (kint inversé: les lignes packées avant
- * v7.5, bit 31 = 0, continuent de lire le clavier interne — pas de reset de format). */
+ * Codec de ligne (v5): ch[0:5] | stype[5:2] | snum[7:7] | dst[14:4] | dnum[18:7] |
+ * fade[25:3] | fmask[28:3] | bit 31 = lecture interne EXCLUE (kint inversé: les lignes
+ * packées avant v7.5, bit 31 = 0, continuent de lire le clavier interne). Format différé
+ * (v5 remet les lignes à zéro): dst sur 4 bits, dnum sur 7. */
 void mm2_load(void);
 void mm2_save(void);
 int  mm2_enabled(void);

@@ -21,6 +21,7 @@ void (*mm2_act_mute)(int track, int fade, int fmask);
 void (*mm2_act_marker)(int local, int fade, int fmask);
 void (*mm2_act_mnext)(int fade, int fmask);
 void (*mm2_act_mprev)(int fade, int fmask);
+void (*mm2_act_loop)(int kind);
 void (*mm2_act_combo)(int row, const uint8_t *keys, int n);
 void (*mm2_env_query)(mm2_env *e);
 
@@ -37,9 +38,10 @@ static const char *const combokeys[MM2_ROWS] = {
 int mm2_row_pack(const mm2_row *r)
 {
     if (!r || r->ch > MM2_CH_ALL || r->stype > MM2_S_MAX || r->snum > 127 ||
-        r->dst > MM2_D_MAX || r->fade > 4 || r->fmask > MM2_FM_MAX) return -1;
+        r->dst > MM2_D_MAX || r->dnum > 127 || r->fade > 4 ||
+        r->fmask > MM2_FM_MAX) return -1;
     return (int)((uint32_t)r->ch | (uint32_t)r->stype << 5 | (uint32_t)r->snum << 7 |
-                 (uint32_t)r->dst << 14 | (uint32_t)r->dnum << 17 | (uint32_t)r->fade << 25 |
+                 (uint32_t)r->dst << 14 | (uint32_t)r->dnum << 18 | (uint32_t)r->fade << 25 |
                  (uint32_t)r->fmask << 28 | (uint32_t)(r->kint ? 0 : 1) << 31);   /* bit31:
                                             * interne EXCLU — les lignes v7.4 (bit 0) lisent */
 }
@@ -51,8 +53,8 @@ mm2_row mm2_row_unpack(int v)
     r.ch = (uint8_t)(u & 31);
     r.stype = (uint8_t)(u >> 5 & 3);
     r.snum = (uint8_t)(u >> 7 & 127);
-    r.dst = (uint8_t)(u >> 14 & 7);
-    r.dnum = (uint8_t)(u >> 17 & 255);
+    r.dst = (uint8_t)(u >> 14 & 15);
+    r.dnum = (uint8_t)(u >> 18 & 127);
     r.fade = (uint8_t)(u >> 25 & 7);
     r.fmask = (uint8_t)(u >> 28 & 7);
     r.kint = !(u >> 31 & 1);                   /* bit31 = 0 (lignes pré-v7.5): lit l'interne */
@@ -185,6 +187,13 @@ static void mm2_run(int i)
         if (!e.markers) return;
         if (r->dst == MM2_D_MRP ? mm2_act_mnext : mm2_act_mprev)
             (r->dst == MM2_D_MRP ? mm2_act_mnext : mm2_act_mprev)(r->fade, r->fmask);
+        return;
+    }
+    case MM2_D_LSR:
+    case MM2_D_LSL:
+    case MM2_D_LOP: {                  /* v7.5/1.7.5: boucle (décalages, on-off) via le hook */
+        if (!mm2_act_loop) return;
+        mm2_act_loop(r->dst == MM2_D_LSR ? 1 : r->dst == MM2_D_LSL ? 0 : 2);
         return;
     }
     case MM2_D_COMBO: {                                    /* séquence de touches, via le hook */

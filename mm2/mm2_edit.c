@@ -141,9 +141,10 @@ int mm2_edit_key(int code, int pressed, int shift)
     return 0;                                                          /* avalé par l'intégration (modal) */
 }
 
-/* liste plate des destinations: OFF, COMBO, SND 1..8, TAPE 1..4, MUTE 1..4, MRK 1..32, M+, M-
- * (0..51; COMBO en premier: première destination atteinte en tournant depuis OFF) */
-#define FLAT_LAST 51
+/* liste plate des destinations: OFF, COMBO, SND 1..8, TAPE 1..4, MUTE 1..4, MRK 1..32, M+, M-,
+ * L> (boucle droite), L< (boucle gauche), LOP (boucle on/off) — 0..54 (v7.5); les dests LOOP
+ * suivent M+/M-, COMBO toujours en premier (première destination atteinte en tournant depuis OFF) */
+#define FLAT_LAST 54
 static int flat_pos(const mm2_row *r)
 {
     if (r->dst == MM2_D_COMBO) return 1;
@@ -153,6 +154,9 @@ static int flat_pos(const mm2_row *r)
     if (r->dst == MM2_D_MRK) { int n = r->dnum < 1 ? 1 : r->dnum > MM2_MRK_MAX ? MM2_MRK_MAX : r->dnum; return 17 + n; }
     if (r->dst == MM2_D_MRP) return 50;
     if (r->dst == MM2_D_MRM) return 51;
+    if (r->dst == MM2_D_LSR) return 52;                /* v7.5: loop droite puis gauche puis on/off */
+    if (r->dst == MM2_D_LSL) return 53;
+    if (r->dst == MM2_D_LOP) return 54;
     return 0;                                              /* OFF (et toute destination inconnue) */
 }
 static void flat_set(mm2_row *r, int pos)
@@ -164,7 +168,10 @@ static void flat_set(mm2_row *r, int pos)
     else if (pos <= 17) { r->dst = MM2_D_MUTE; r->dnum = (uint8_t)(pos - 13); }
     else if (pos <= 49) { r->dst = MM2_D_MRK; r->dnum = (uint8_t)(pos - 17); }
     else if (pos == 50) { r->dst = MM2_D_MRP; r->dnum = 0; }
-    else { r->dst = MM2_D_MRM; r->dnum = 0; }
+    else if (pos == 51) { r->dst = MM2_D_MRM; r->dnum = 0; }
+    else if (pos == 52) { r->dst = MM2_D_LSR; r->dnum = 0; }     /* v7.5: loop droite */
+    else if (pos == 53) { r->dst = MM2_D_LSL; r->dnum = 0; }     /* loop gauche */
+    else { r->dst = MM2_D_LOP; r->dnum = 0; }                    /* loop on/off */
 }
 
 void mm2_edit_turn(int knob, int delta, int shift)

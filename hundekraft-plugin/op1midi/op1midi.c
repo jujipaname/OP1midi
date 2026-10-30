@@ -1,9 +1,13 @@
-/* OP1midi — mapping MIDI generaliste (mm2 v3) comme feature plugin kennel, cible Hundekraft 3.0.3.
- * Copyright (C) 2026 OP1midi. GPL-3.0-or-later with the OP-1 firmware permission (see LICENSE and NOTICE).
+/* OP1midiMap — mapping MIDI generaliste (plugin op1midi.knl, mm2 v3) pour le kennel Hundekraft
+ * 3.0.3 (OP-1 OG, base R246). Copyright (C) 2026 OP1midiMap. GPL-3.0-or-later with the OP-1
+ * firmware permission (see LICENSE and NOTICE). Le nom de feature / l'espace de réglages reste
+ * "op1midi" (persistance des réglages et nom du fichier .knl); versionnage du .knl: 1.7.x
+ * (1.7.5 = première version sous ce nom). Vibe codé avec opencode + GLM-5.3-flash (Z.ai).
  *
  * Entree: Shift + Help (mode clock) -> T3 (settings) -> rangée "MIDI MAP" (op1_switch
  * enregistré au 1er OP1_EV_SERVICE après le BOOT_DONE (après midiseq): 2e rangée = blanche):
- * tourner = ON/OFF global, appui blanc = ouvre l'éditeur.
+ * tourner = ON/OFF global, appui blanc = ouvre l'éditeur. Sur la page settings, un petit
+ * « WHITE: EDIT » clignote sur la rangée (miroir T3: nos input passent avant kn_pages_key).
  * Éditeur v13 (overlay modal sur voile + panneau noir, police vectorielle kennel, majuscules;
  * les étiquettes et unités — note, cc, pc, ch, s — en petites capitales, la police n'a que
  * des majuscules):
@@ -38,7 +42,11 @@
  * /0x01DD5248/0x01DD524D, réveil 0x019C2F04, pattern op1r midi/mx.c), TAPE 1..4
  * (op1_tape_switch), MUTE 1..4 (octet mute R246 0xFF8010A0 + màj DSP 0x01967ED0), MARKER 1..32
  * (un ensemble partagé entre les tapes en 3.0.3: le n-ième marqueur, tape courante, sans
- * switch), MRK+/MRK- (saut, wrap).
+ * switch), MRK+/MRK- (saut, wrap), LOOP (v7.5: décalage de la région de boucle à droite puis
+ * à gauche puis boucle on/off — op1_tape_loop_get/set hot, sans saut; pas = largeur/16, min
+ * 0x1400 échantillons; pareil en lecture qu'à l'arrêt, refusé en rec/punch/disk; affichage
+ * dans la colonne des destinations par pictogrammes vectoriels flèche droite / flèche gauche
+ * / icône de boucle — pas de texte).
  *
  * Fade (rotation rouge: OFF/1s/2s/8s/32s): en lecture, tout saut de marker (MRK/M+/M-) fond
  * les pistes choisies (Shift+rotation rouge: ALL/P1/P2/P3/P4/P12/P34) des volumes live
@@ -83,9 +91,13 @@ static void mm_put(const char *k, int v) { op1_setting_set(FEAT, k, v); }
 
 /* ---- état suivi ---- */
 static volatile uint8_t cur_mode;                /* OP1_EV_MODE / op1_input.mode */
+static uint8_t st_shown;                         /* miroir de la page T3 settings (kn_pages shown):
+                                                  * le dispatcher appelle nos input AVANT kn_pages_key,
+                                                  * on suit donc les mêmes bascules (T3 / Shift+Help) */
+static uint16_t st_frame;                        /* clignotement du message sur la page settings */
 
 /* ---- file d'actions (producteur: timer midi_raw; consommateur: main loop) ---- */
-enum { K_SND = 1, K_TAPE, K_MUTE, K_MARKER, K_MNEXT, K_MPREV, K_COMBO };
+enum { K_SND = 1, K_TAPE, K_MUTE, K_MARKER, K_MNEXT, K_MPREV, K_COMBO, K_LOOP };
 typedef struct { uint8_t kind; int16_t a, b; uint8_t m; } pend_t;
 static pend_t pq[8];
 static volatile uint8_t pq_wr, pq_rd;
@@ -238,6 +250,8 @@ static void act_mute(int track, int fade, int fmask) { pq_push(K_MUTE, track, fa
 static void act_marker(int local, int fade, int fmask) { pq_push(K_MARKER, local, fade, fmask); }
 static void act_mnext(int fade, int fmask) { pq_push(K_MNEXT, 0, fade, fmask); }
 static void act_mprev(int fade, int fmask) { pq_push(K_MPREV, 0, fade, fmask); }
+static void act_loop(int kind)               /* 0 gauche, 1 droite, 2 on/off (v7.5) */
+{ pq_push(K_LOOP, (int16_t)kind, 0, 0); }
 static void act_combo(int row, const uint8_t *keys, int n)   /* la séquence est relue au drain */
 { (void)keys; (void)n; pq_push(K_COMBO, row, 0, 0); }
 
@@ -332,6 +346,26 @@ static void drain(void)                          /* main loop */
                     if (sh) { seq[n++] = 0x26; seq[n++] = 0; }          /* Shift release */
                 }
                 inject_keys(seq, n / 2);
+            }
+        } else if (p.kind == K_LOOP) {       /* v7.5: boucle tape, hot — pas de saut, pas de
+                                              * touches injectées (op1_tape_loop_get/set) */
+            mm2_env e;
+            env_query(&e);
+            if (!e.tape_mode || e.punch || pu_mode ||
+                (e.raw_state != 3 && e.raw_state != 10)) continue;
+            int on, li, lo;
+            op1_tape_loop_get(&on, &li, &lo);
+            if (p.a == 2) {                  /* on-off: bascule la région courante */
+                op1_tape_loop_set(!on, li, lo);
+            } else {                         /* décalage: la largeur est conservée */
+                if (li < 0 || li >= lo) continue;
+                int32_t span = lo - li;
+                int32_t step = span / 16;
+                if (step < 0x1400) step = 0x1400;      /* min ~54 ms @ 44.1 kHz */
+                int32_t d = p.a == 1 ? step : -step;
+                if (li + d < 0) d = -li;               /* clamp: pas au-delà de la bande */
+                if (lo + d > 0xF23FA0) d = 0xF23FA0 - lo;
+                if (d) op1_tape_loop_set(on, li + d, lo + d);
             }
         } else {                             /* K_MARKER / K_MNEXT / K_MPREV: sauts (± fade) */
             mm2_env e;
@@ -436,6 +470,13 @@ static int input(const op1_input *in)
 {
     wire();
     if (in->type == OP1_IN_KEY) {
+        if (in->mode == 0x0C && in->pressed) {   /* miroir de la page T3 settings: T3 bascule
+                                                  * (sauf si l'éditeur avale la touche: learn ou
+                                                  * Shift tenu), Shift+Help la referme */
+            if (in->code == 0x08) {
+                if (!mm2_edit_view() || (mm2_edit_learn_state() == MM2_L_NONE && !in->shift)) st_shown ^= 1;
+            } else if (in->code == 0x00 && in->shift && !mm2_edit_view()) st_shown = 0;
+        }
         if (!mm2_edit_view()) {
             if (in->code == 0x3D && in->pressed && in->mode == 0x0C && !op1_text_entry_open()) {
                 mm2_edit_open();
@@ -510,6 +551,36 @@ static void mm_panel(void *r)
 }
 
 static char *put_str(char *e, const char *s) { while (*s) *e++ = *s++; *e = 0; return e; }
+
+/* v7.5: pictogrammes vectoriels des destinations LOOP (colonne blanche, pas de texte —
+ * dessinés en pixels, traits Q10 width 2): flèche droite / flèche gauche (décalages) et
+ * boucle (on-off: anneau avec brèche en haut à gauche, tête de flèche vers la brèche) */
+static void mm_seg(void *r, int x0, int y0, int x1, int y1, const uint8_t *c)
+{
+    op1_pt a = { OP1_Q10(x0), OP1_Q10(y0) }, b = { OP1_Q10(x1), OP1_Q10(y1) };
+    op1_raster_line(r, &a, &b, OP1_Q10(2), c);
+}
+static void dst_glyph(void *r, int dst, int x, int y, const uint8_t *c)
+{
+    if (dst == MM2_D_LSR) {                                    /* flèche droite: » */
+        mm_seg(r, x + 1, y + 1, x + 5, y + 6, c);
+        mm_seg(r, x + 5, y + 6, x + 1, y + 11, c);
+        mm_seg(r, x + 7, y + 1, x + 11, y + 6, c);
+        mm_seg(r, x + 11, y + 6, x + 7, y + 11, c);
+    } else if (dst == MM2_D_LSL) {                             /* flèche gauche: « */
+        mm_seg(r, x + 11, y + 1, x + 7, y + 6, c);
+        mm_seg(r, x + 7, y + 6, x + 11, y + 11, c);
+        mm_seg(r, x + 5, y + 1, x + 1, y + 6, c);
+        mm_seg(r, x + 1, y + 6, x + 5, y + 11, c);
+    } else {                                                   /* LOP: boucle */
+        mm_seg(r, x + 4, y + 2, x + 13, y + 2, c);             /* haut (vers la droite) */
+        mm_seg(r, x + 13, y + 2, x + 13, y + 11, c);
+        mm_seg(r, x + 13, y + 11, x + 4, y + 11, c);
+        mm_seg(r, x + 4, y + 11, x + 4, y + 8, c);             /* brèche: côté gauche ouvert */
+        mm_seg(r, x + 4, y + 2, x + 6, y + 6, c);              /* tête vers la brèche */
+        mm_seg(r, x + 4, y + 2, x + 1, y + 6, c);
+    }
+}
 static char *put_num(char *e, int v)                       /* 0..255 */
 {
     if (v >= 100) *e++ = (char)('0' + v / 100);
@@ -527,7 +598,8 @@ static char *put_hx(char *e, int cd)                       /* 2 chiffres hex (ma
 }
 
 static const char *const st_names[] = { "NOTE", "CC", "PC" };
-static const char *const dst_names[] = { "--", "SND", "TAPE", "MUT", "MRK", "M+", "M-", "COMBO" };
+static const char *const dst_names[] = { "--", "SND", "TAPE", "MUT", "MRK", "M+", "M-",
+                                         "COMBO", "L>", "L<", "LOP" };
 static const char *dstTextOfRow(const mm2_row *w)          /* "mrk 11" / "snd 3" / "combo 2" / "--" */
 {
     static char b[12];
@@ -555,7 +627,13 @@ static void mm_cell(void *r, int x0, int x1, int y, const uint8_t *c)   /* fond 
 static void overlay(void *r, int32_t screen)
 {
     (void)screen;
-    if (!mm2_edit_view()) return;
+    st_frame++;
+    if (!mm2_edit_view()) {
+        /* page settings (clock T3, rangée MIDI MAP = y 88): clignote, invite l'appui blanc */
+        if (st_shown && cur_mode == 0x0C && !(st_frame / 30u & 1))
+            sf_text(r, OP1_Q10(210), OP1_Q10(90), SF_SMALL, "WHITE: EDIT", 0x600, c_white);
+        return;
+    }
     mm_fade(r);
     mm_panel(r);
     int page = mm2_edit_page(), cur = mm2_edit_cursor(), ls = mm2_edit_learn_state();
@@ -610,6 +688,8 @@ static void overlay(void *r, int32_t screen)
                 }
             }
         }
+        else if (w->dst >= MM2_D_LSR && w->dst <= MM2_D_LOP)       /* v7.5: pictos boucle */
+            dst_glyph(r, w->dst, xs[2], y, cols[2]);
         else sf_text(r, OP1_Q10(xs[2]), yq, SF_S, dstTextOfRow(w), 0x600, cur_ ? c_black : cols[2]);
         {   /* v7.4: fade seulement là où il s'applique (MUTE/MRK/M+/M-) — case vide sinon; pour les
              * sauts, destination du fade en petites capitales (clic rouge: ALL/P1..P4/P12/P34) */
@@ -683,6 +763,7 @@ static void wire(void)
     mm2_act_marker = act_marker;
     mm2_act_mnext = act_mnext;
     mm2_act_mprev = act_mprev;
+    mm2_act_loop = act_loop;
     mm2_act_combo = act_combo;
     mm2_env_query = env_query;
 }

@@ -1,5 +1,10 @@
-OP1midi plugin for the Hundekraft kennel runtime (Teenage Engineering OP-1, firmware R246)
-Copyright (C) 2026 OP1midi (jujipaname)
+OP1midiMap plugin for the Hundekraft kennel runtime (Teenage Engineering OP-1, firmware R246)
+Copyright (C) 2026 OP1midiMap (jujipaname)
+
+The plugin file stays op1midi.knl and the settings namespace stays "op1midi" (persistence);
+the project is named OP1midiMap. The .knl is versioned 1.7.x since the rename: release 1.7.5
+is the first version under this name (= the former v7.5 plus the settings-page hint and the
+tape LOOP destinations; line format bumped to v5 — stored rows reset once).
 
 The plugin sources (op1midi.c, mm2.h, mm2_core.c, mm2_edit.c) are free software: you can redistribute them and/or
 modify them under the terms of the GNU General Public License as published by the Free Software Foundation, either
@@ -24,19 +29,27 @@ Hundekraft 3.0.3 (kennel feature API OP1_FEATURE_API = 1). Built with the 3.0.3 
 Newer cores may work; older cores reject unknown imports at load time.
 
 WHAT IT DOES (control map)
-- Shift + Help (clock mode) -> T3 settings: the "MIDI MAP" switch row (green, white or red depending on
-  registration order; it is the only switch registered today). Turn: mapping ON/OFF (setting op1midi.mmen).
-- White encoder push in clock mode: opens the mapping editor (modal overlay, 320x160).
-- Editor: blue = MIDI channel (1..16 / ALL), green = CC/PC number (push toggles CC <-> PC), white = action
-  (turn; push = value edit for TAPE/INSTRUMENT, push again = validate), red = row cursor over 16 rows
-  (4 pages, the cursor row is drawn red, others white), left/right = pages, Shift + Help = validate and close
-  (settings op1midi.mmr0..mmr15, one packed int32 per row).
-- Actions: MARKER NEXT / MARKER PREV (jump via the core's shared markers tm_pos[]/tm_n and
-  op1_tape_pos_set), PLAY FROM MARKER (locate + op1_seq_press_play; only from stop, no punch, no armed
-  count-in), TAPE SELECT (value 1..4 -> op1_tape_switch), INSTRUMENT SELECT (no core service yet: a toast
-  explains it once per boot).
-- Mapped CCs are taken from the core's key/encoder path (op1_midi_take_cc). Default mapping (empty user
-  config): CC 80 next, CC 81 previous, CC 82 play-from-marker, channel 1.
+- Shift + Help (clock mode) -> T3 settings: the "MIDI MAP" switch row (white; registered after the
+  built-in MIDI sequencer). Turn: mapping ON/OFF (setting op1midi.mmen); a small "WHITE: EDIT" blinks
+  on the row (1 Hz) while the settings page is shown. Push: opens the mapping editor (modal overlay).
+- Editor v13 (16 rows, 4 pages): blue = cursor / note display (number, C#4, DO#4) / Shift+push = clear
+  row; green = source (NOTE/CC/PC + number, small label) / Shift+turn = channel / push = type /
+  Shift+push = MIDI learn; white = destination flat list (COMBO first, OFF, SND 1..8, TAPE 1..4,
+  MUTE 1..4, MRK 1..32, M+, M-) / push = validate combo / Shift+push = combo learn; red = fade
+  (OFF/1s/2s/8s/32s) / Shift+turn = fade tracks (ALL/P1/P2/P3/P4/P12/P34) / push = internal-midi
+  reading toggle (small i before the source: red on, gray off) / Shift+push = nothing (legacy removed).
+  Arrows = pages; exits (always saving): Help, mode/T/transport keys — with a learn armed every key
+  is swallowed (Help still validates).
+- Sources: NOTE (external USB midi AND the OP-1 keyboard, per-row via kint), CC (edge >= 64), PC.
+- Destinations: COMBO (1..3 keys + Shift, replayed as synthetic keys), SND 1..8 (sound keys, hard
+  codes), TAPE 1..4 (op1_tape_switch), MUTE 1..4 (mute byte + DSP update; fades while playing),
+  MRK 1..32 / M+ / M- (shared marker set, jumps work stopped and playing, PLAY is only pressed
+  from stop), LOOP (v7.5: shift the loop region right then left then loop on/off — hot
+  op1_tape_loop_get/set, no jumps, step = span/16 min 0x1400 samples; denied while armed /
+  recording / punch / disk; arrows and loop pictograms drawn in the destination column instead
+  of text), tape, mixer and Shift+mixer views allowed.
+- Fade: while playing, jumps fade the chosen tracks to silence, jump at silence, then fade back.
+  MUTE fades the muted track itself. Captured CCs are taken from the core key path (op1_midi_take_cc).
 
 CLAIMS
 - key:clock:white (the white encoder push in clock mode; no other plugin consumes it in 3.0.3).
@@ -51,6 +64,19 @@ INSTALL
   managed by the workshop. Save a disk-mode backup first (see install-recuperation.md in the repository).
 
 CHANGES
+- 1.7.5 (2026-10-30, first release under the OP1midiMap name; = former v7.5 + hint + loop):
+  * Settings page (clock T3): a small "WHITE: EDIT" blinks on the MIDI MAP row (1 Hz) while the
+    page is shown — tracked with a mirror of kn_pages' shown state (our input hooks run before
+    kn_pages_key, so T3 presses and Shift+Help are followed exactly).
+  * Tape LOOP destinations (user request, ported stock Shift+arrows): L> (shift the loop region
+    right), L< (shift it left), LOP (loop on/off). Hot op1_tape_loop_get/set — no key injection,
+    no jumps; works stopped and playing (tape/mixer/mixov views), denied armed/recording/punch/
+    disk mode; step = span/16 (min 0x1400 samples ~54 ms), region width kept, clamped to the tape.
+    Loop-display rows draw VECTOR PICTOGRAMS in the destination column (right arrow, left arrow,
+    loop ring) instead of stock-font text (the stroke font has no SVG/loop glyphs).
+  * Line codec v5 ('mmv' 4 -> 5): dst needs its 4th bit and the dnum field 7 bits (loop rows
+    have no parameter) — stored rows reset ONCE: re-map your lines after installing.
+    Test suite extended (loop dispatch kinds 0/1/2, flat list 52..54, pack/unpack v5).
 - v7.5 (2026-10-29): internal-midi reading per row (user request).
   * Red encoder click now TOGGLES the row's internal-midi reading (kint): when off, the OP-1
     keyboard plays normally and no longer triggers that row (external midi still does).

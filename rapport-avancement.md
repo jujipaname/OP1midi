@@ -655,3 +655,34 @@ Shift+rotation rouge.
 4. Tests: codec bit31 (pack négatif, unpack pré-v7.5 = lit), dispatch interne/externe,
    toggle + reliquat + Shift+rotation, suppression (Shift+clic bleu) remet kint au défaut.
 - **`op1midi.knl` v7.5** : 21 492 o, 0 warning. mm2_test ok.
+
+## 30. OP1midiMap 1.7.5 — renommage, hint settings + destinations LOOP (30 octobre 2026)
+
+Trois demandes utilisateur: (1) un message clignotant sur la page settings (rendons l'éditeur
+repérable), (2) renommage du dépôt OP1midi -> OP1midiMap avec versionnage .knl en 1.7.x, (3)
+destinations manquantes: décalage de la loop droite/gauche + boucle on/off (mode tape), avec
+pictogrammes dans la colonne des destinations.
+
+1. **Renommage** : projet/dépôt = OP1midiMap (gh repo rename); le FEAT / l'espace de réglages
+   "op1midi" et le fichier `op1midi.knl` restent inchangés (persistance + continuité du
+   workshop). Versionnage: 1.7.5 = première version sous ce nom.
+2. **Hint clignotant** : « WHITE: EDIT » (SF_SMALL blanc) clignote à ~1 Hz sur la rangée MIDI
+   MAP de la page settings (y = 88 px, x = 210) quand la page T3 est affichée. Détection par
+   miroir: nos hooks d'input passent AVANT `kn_pages_key`, on suit donc T3 (toggle) et
+   Shift+Help (`show(0)`) exactement; quitter l'éditeur hors Shift laisse la page se basculer
+   — miroir dans le même flux que le dispatcher.
+3. **LOOP** (port des Shift+flèches stock): destinations L> (décalage droite), L< (gauche),
+   LOP (on/off). Testé dans le bundle: `op1_tape_loop_get/set` (kn_tapesvc.c, exportéd) =
+   actions hot SANS injection de touches ni saut; pareil à l'arrêt et en lecture vues tape/
+   mixer/mixov, refusé armé/enrec/punch/disk. Pas = largeur/16 (min 0x1400 échantillons
+   ~54 ms), largeur conservée, clamp 0..0xF23FA0. `LOOP_ON/LOOP_EFF` suivent, dirty + redraw
+   gérés par `op1_tape_loop_set`.
+4. **Pictogrammes** : la colonne blanche des destinations dessine flèche droite / flèche
+   gauche / anneau de boucle (traits raster Q10 width 2, 14 px) au lieu du texte — la police
+   kennel n'a pas les glyphes; le codec garde des noms "L>"/"L<"/"LOP".
+5. **Codec v5** ('mmv' 4 -> 5, reset une fois): dst sur 4 bits (8..10), dnum sur 7 bits
+   (dnum>127 invalide au pack; plage par destination inchangée). Ligne: le clavier rejoue les
+   anciennes lignes à zéro — re-mapping nécessaire aprés installation (documenté NOTICE/README).
+6. Tests: dispatch kinds 0/1/2 (CC et PC), garde noyau = aucune (filtrage intégration),
+   liste plate 52..54 + wrap à 54, pack/unpack v5. mm2_test ok; build 0 warning,
+   `op1midi.knl` 23 100 o (imports `op1_tape_loop_get`/`op1_tape_loop_set`).

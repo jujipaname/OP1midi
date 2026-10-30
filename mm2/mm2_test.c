@@ -49,6 +49,8 @@ static void act_mute(int t, int f, int m) { n_mute++; last_mute = t; last_fade =
 static void act_marker(int local, int f, int m) { n_marker++; last_mlocal = local; last_fade = f; last_fmask = m; }
 static void act_mnext(int f, int m) { n_mnext++; last_fade = f; last_fmask = m; }
 static void act_mprev(int f, int m) { n_mprev++; last_fade = f; last_fmask = m; }
+static int n_loop, last_loop;
+static void act_loop(int k) { n_loop++; last_loop = k; }          /* v7.5: boucle */
 static mm2_env ENV = { 1, 3, 0, 5 };       /* mode tape, arrêt (3), pas de punch, 5 marqueurs */
 static void env_query(mm2_env *e) { *e = ENV; }
 
@@ -56,11 +58,13 @@ static void reset(void)
 {
     st_clear();
     n_snd = n_tape = n_mute = n_marker = n_mnext = n_mprev = 0;
+    n_loop = 0; last_loop = -99;
     n_combo = combo_len = 0; combo_k[0] = combo_k[1] = combo_k[2] = combo_k[3] = 0;
     last_snd = last_tape = last_mute = last_mlocal = last_fade = last_fmask = -99;
     mm2_setting_get = fake_get; mm2_setting_put = fake_put;
     mm2_act_snd = act_snd; mm2_act_tape = act_tape; mm2_act_mute = act_mute;
     mm2_act_marker = act_marker; mm2_act_mnext = act_mnext; mm2_act_mprev = act_mprev;
+    mm2_act_loop = act_loop;
     mm2_act_combo = act_combo;
     mm2_env_query = env_query;
     mm2_enable(1);
@@ -91,6 +95,14 @@ int main(void)
     assert(back2.dst == MM2_D_OFF && back2.stype == 0 && back2.snum == 0);
     mm2_row back3 = mm2_row_unpack(20);                    /* ch 20 > ALL: invalidée */
     assert(back3.ch == 0 && back3.dst == MM2_D_OFF);
+    mm2_row lsr = { 2, MM2_S_CC, 51, MM2_D_LSR, 0, 0, MM2_FM_ALL, 1 };   /* v7.5: dests loop */
+    mm2_row qlp = mm2_row_unpack(mm2_row_pack(&lsr));
+    assert(qlp.dst == MM2_D_LSR && qlp.stype == MM2_S_CC && qlp.snum == 51 &&
+           qlp.dnum == 0 && qlp.kint == 1);
+    mm2_row lop = { 1, MM2_S_PC, 3, MM2_D_LOP, 200, 0, 0, 1 };
+    assert(mm2_row_pack(&lop) == -1);                      /* dnum > 127: invalide en v5 */
+    mm2_row backlop = mm2_row_unpack(10 << 14);            /* dst 10 = LOP: valide à présent */
+    assert(backlop.dst == MM2_D_LOP && backlop.ch == 0 && backlop.dnum == 0);
 
     /* ---- dispatch: rien de mappé -> rien de consommé ---- */
     reset();
@@ -106,6 +118,21 @@ int main(void)
     assert(mm2_cc(0, 80, 0) && mm2_cc(0, 80, 127) && n_marker == 2 && last_mlocal == 5);
     assert(mm2_cc(0, 80, 100) && n_marker == 2);           /* tenu: pas de répétition */
     assert(mm2_cc(0, 80, 0) && mm2_cc(0, 80, 64) && n_marker == 3);
+
+    /* ---- v7.5: ligne -> LOOP (décalage droite/gauche, on-off) ---- */
+    reset();
+    mm2_row_edit(2)->stype = MM2_S_CC; mm2_row_edit(2)->snum = 71; mm2_row_edit(2)->dst = MM2_D_LSR;
+    mm2_row_edit(3)->stype = MM2_S_CC; mm2_row_edit(3)->snum = 72; mm2_row_edit(3)->dst = MM2_D_LSL;
+    mm2_row_edit(4)->stype = MM2_S_CC; mm2_row_edit(4)->snum = 73; mm2_row_edit(4)->dst = MM2_D_LOP;
+    assert(mm2_cc(0, 71, 127) && n_loop == 1 && last_loop == 1);        /* droite */
+    assert(mm2_cc(0, 71, 0) && mm2_cc(0, 71, 64) && n_loop == 2);       /* front: retrig */
+    assert(mm2_cc(1, 72, 127) && n_loop == 3 && last_loop == 0);        /* gauche (canal libre = ALL) */
+    assert(mm2_cc(0, 73, 127) && n_loop == 4 && last_loop == 2);        /* on-off */
+    /* gardes loop (rec/punch/hors tape): côté intégration (drain K_LOOP) — le noyau
+     * passe toujours le hook */
+    ENV.raw_state = 5;
+    assert(mm2_cc(1, 72, 0) && mm2_cc(1, 72, 127) && n_loop == 5 && last_loop == 0);
+    ENV.raw_state = 3;
 
     /* ---- gardes marker: états / punch / marqueurs insuffisants ---- */
     reset();
@@ -277,7 +304,14 @@ int main(void)
     mm2_edit_turn(2,31*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_MRK&&mm2_row_get(0)->dnum==32,"blanc +31: MRK 32");
     mm2_edit_turn(2,2*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_MRM,"blanc +2: MRK32->M+->M-");
     mm2_edit_turn(2,-1*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_MRP,"blanc -1: M-->M+");
-    mm2_edit_turn(2,3*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_COMBO,"blanc +3: M+->M-->OFF->COMBO (premier)");
+    mm2_edit_turn(2,3*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_LSL,
+       "blanc +3: M+->M-->L>->L< (v7.5 loop gauche)");
+    mm2_edit_turn(2,1*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_LOP,"blanc: L<->LOP (on/off)");
+    mm2_edit_turn(2,-3*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_MRM,
+       "blanc -3: LOP->L<->L>->M-");
+    mm2_edit_turn(2,4*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_OFF,
+       "blanc +4: M-->L>->L<->LOP->OFF (wrap)");
+    mm2_edit_turn(2,1*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_COMBO,"blanc +1: OFF->COMBO (premier)");
     mm2_edit_turn(2,1*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_SND&&mm2_row_get(0)->dnum==1,"blanc +1: COMBO->SND1");
     mm2_edit_turn(2,6*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_SND&&mm2_row_get(0)->dnum==7,"blanc +6: SND1->SND7");
     mm2_edit_turn(3,1*MM2_DETENT,0); A2(mm2_row_get(0)->fade==1,"rouge: fade ligne 0->1");
@@ -353,9 +387,9 @@ mm2_edit_learn_feed(MM2_S_CC,44); A2(mm2_edit_learn_state()==MM2_L_NONE&&mm2_row
     /* ---- v7.0: destination COMBO (première de la liste), learn combo, rejeu, persistance ---- */
     reset();
     mm2_edit_open();
-    mm2_edit_turn(2,-1*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_MRM,"blanc -1: OFF->M- (wrap)");
-    mm2_edit_turn(2,1*MM2_DETENT,0);  A2(mm2_row_get(0)->dst==MM2_D_OFF,"blanc +1: M-->OFF");
-    mm2_edit_turn(2,1*MM2_DETENT,0);  A2(mm2_row_get(0)->dst==MM2_D_COMBO,"blanc +1: OFF->COMBO (premier)");
+    mm2_edit_turn(2,-1*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_LOP,"blanc -1: OFF->LOP (wrap, v7.5)");
+    mm2_edit_turn(2,-1*MM2_DETENT,0); A2(mm2_row_get(0)->dst==MM2_D_LSL,"blanc -1: LOP->L<");
+    mm2_edit_turn(2,3*MM2_DETENT,0);  A2(mm2_row_get(0)->dst==MM2_D_COMBO,"blanc +3: L<->LOP->OFF->COMBO (premier)");
     { int lo, hi; mm2_dnum_range(MM2_D_COMBO,&lo,&hi); A2(lo==0&&hi==3,"plage COMBO: 0..3"); }
     mm2_edit_key(0x3D,1,1); A2(mm2_edit_learn_state()==MM2_L_COMBO,"learn combo armé (Shift+blanc)");
     A2(mm2_edit_learn_stage(ck)==0,"staging vide à l'armement");
