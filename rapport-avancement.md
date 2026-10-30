@@ -686,3 +686,17 @@ pictogrammes dans la colonne des destinations.
 6. Tests: dispatch kinds 0/1/2 (CC et PC), garde noyau = aucune (filtrage intégration),
    liste plate 52..54 + wrap à 54, pack/unpack v5. mm2_test ok; build 0 warning,
    `op1midi.knl` 23 100 o (imports `op1_tape_loop_get`/`op1_tape_loop_set`).
+
+## 31. 1.7.5 bis — retours hardware sur les loop (30 octobre 2026)
+
+Deux retours après flash: (1) les dests loop en premier dans la liste du blanc, avant COMBO;
+(2) les pictogrammes étaient blancs -> invisibles sur la ligne sélectionnée (fond blanc).
+
+1. **Ordre**: liste plate v1.7.5 = OFF, L>, L<, LOP, COMBO, SND 1..8, TAPE 1..4, MUTE 1..4,
+   MRK 1..32, M+, M- (0..54). La première destination atteinte en tournant depuis OFF est
+   L> — COMBO reste à sa valeur de liste (+4 crans pour l'atteindre). Tests recalculés.
+2. **Picto vert fixe**: la couleur du tracé est bien un paramètre du dessin (donc dynamique
+   POSSIBLE), mais le picto blanc sur le fond blanc de la surbrillance ne se voyait pas.
+   Vert permanent (demandé vert pour rappeler la boucle OP-1): lisible sur les deux fonds.
+   dst_texts 'L>'/'L<'/'LOP' restent des replis.
+- **`op1midi.knl`** : 23 084 o, 0 warning. mm2_test ok.

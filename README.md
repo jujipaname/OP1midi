@@ -61,24 +61,27 @@ The cursor row is highlighted; columns use the encoder colors (blue/green/white/
 - **PC**: fires on every program-change message.
 
 ### Destinations
-| Destination | Parameter | Action |
+| Destinations | Parameter | Action |
 |---|---|---|
 | `--` | — | row off |
+| `L>` (right) | — | shifts the **loop region right** (same as Shift + arrow right everywhere in tape mode) |
+| `L<` (left) | — | shifts the loop region left |
+| `LOP` | — | loop **on/off** (toggles the existing loop region) |
 | `COMBO` | 1..3 keys | replays the recorded key sequence as synthetic keys |
 | `SND` 1..8 | sound number | opens SYNTH and presses the hard-coded sound key (verified on R246) |
 | `TAPE` 1..4 | tape number | switches the tape (4 independent tapes in 3.0.3) |
 | `MUTE` 1..4 | track | toggles the track mute; while playing the mute **fades** the muted track |
 | `MRK` 1..32 | marker number | jumps to the shared marker set position (the tape's markers; if none is set at that slot, nothing happens) |
 | `M+` / `M-` | — | previous / next marker in view, wrapping |
-| `L>` (right) | — | shifts the **loop region right** (same as Shift + arrow right everywhere in tape mode) |
-| `L<` (left) | — | shifts the loop region left |
-| `LOP` | — | loop **on/off** (toggles the existing loop region) |
 
+- The three loop destinations come **first** in the white destination list, right after OFF,
+  before COMBO (v1.7.5, user feedback).
 - The loop destinations use the tape services directly (no keys injected): they work the
   same while stopped and while playing, in tape, mixer and Shift+mixer views; they are
   refused while armed, recording, punch or in disk mode. Each step moves the region by
   1/16 of its width (minimum ~54 ms); the region width is kept and clamped to the tape.
-  The display uses drawn **arrow / loop pictograms** instead of the (letters-only) editor font.
+  The display uses drawn **arrow / loop pictograms in green** (fixed color: readable on the
+  white highlighted row and the dark background, and it recalls the OP-1 loop color).
 - MUTE/MRK/M+/M- honor the row **fade**: while playing, the chosen tracks (red Shift+turn:
   all, track 1..4, or 1+2 / 3+4) fade to silence, the action applies at silence, then volume
   is restored. A MUTE only fades the muted track. Jumps (MRK/M+/M-) carry on playing.
@@ -175,21 +178,24 @@ La ligne du curseur est en surbrillance; les colonnes reprennent les couleurs de
 | Destination | Paramètre | Action |
 |---|---|---|
 | `--` | — | ligne inactive |
+| `L>` (droite) | — | **décale la région de boucle à droite** (comme Shift + flèche droite) |
+| `L<` (gauche) | — | décale la boucle à gauche |
+| `LOP` | — | boucle **on/off** (bascule la région de boucle existante) |
 | `COMBO` | 1..3 touches | rejoue la séquence enregistrée comme touches synthétiques |
 | `SND` 1..8 | n° du son | passe en SYNTH et presse la touche en dur du son (vérifié sur R246) |
 | `TAPE` 1..4 | n° de tape | bascule de tape (4 tapes indépendantes en 3.0.3) |
 | `MUTE` 1..4 | piste | toggle du mute; en lecture, le mute **fonde** la piste |
 | `MRK` 1..32 | n° du marqueur | saut à l'emplacement de l'ensemble partagé de marqueurs (si le slot est vide, rien) |
 | `M+` / `M-` | — | marqueur vu précédent / suivant, avec couvert |
-| `L>` (droite) | — | **décale la région de boucle à droite** (comme Shift + flèche droite) |
-| `L<` (gauche) | — | décale la boucle à gauche |
-| `LOP` | — | boucle **on/off** (bascule la région de boucle existante) |
 
+- Les trois destinations loop viennent **en premier** dans la liste du blanc, juste après OFF,
+  avant COMBO (v1.7.5, retour utilisateur).
 - Les destinations loop touchent les services tape directement (aucune touche injectée):
   identique à l'arrêt et en lecture, vues tape/mixer/mixov; refusé armé, en enregistrement,
   punch ou disk mode. Chaque cran déplace la région de 1/16 de sa largeur (minimum ~54 ms);
   la largeur est conservée, la position clampée à la bande. L'affichage de l'éditeur dessine
-  des **pictogrammes flèche / boucle** (la police de l'éditeur n'a que des lettres).
+  des **pictogrammes flèche / boucle en VERT** (couleur fixe: lisible sur le fond blanc de la
+  ligne sélectionnée comme sur le fond sombre, et ça rappelle la boucle verte de l'OP-1).
 - MUTE/MRK/M+/M- respectent le **fade** de la ligne: en lecture, les pistes choisies
   (Shift+rotation rouge: ALL, piste 1..4, ou 1+2 / 3+4) fondent vers le silence, l'action
   s'applique au silence, puis les volumes remontent. Un MUTE ne fonde que la piste mute.

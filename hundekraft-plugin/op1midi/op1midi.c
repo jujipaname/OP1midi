@@ -18,7 +18,8 @@
  *         TOUJOURS la source: « i note 60 », « i note C#4 », « i cc 74 » — v7.5: un petit i
  *         devant = lecture du midi interne de la ligne, rouge si active, gris sinon);
  *         clic = type source (NOTE/CC/PC); Shift+clic = learn MIDI on/off
- *   blanc: rotation = destination + n° en liste plate (COMBO en premier, OFF, SND 1..8,
+ *   blanc: rotation = destination + n° en liste plate (les LOOP en premier depuis OFF:
+ *         L>, L<, LOP — v1.7.5 — puis COMBO, OFF, SND 1..8,
  *         TAPE 1..4, MUTE 1..4, MRK 1..32, M+, M-); clic seul = validation du combo;
  *         Shift+clic = learn combo on/off (la destination doit être COMBO; 3 touches max
  *         ± Shift, 3e touche = validation auto; armé: le blanc affiche les touches,
@@ -45,7 +46,7 @@
  * switch), MRK+/MRK- (saut, wrap), LOOP (v7.5: décalage de la région de boucle à droite puis
  * à gauche puis boucle on/off — op1_tape_loop_get/set hot, sans saut; pas = largeur/16, min
  * 0x1400 échantillons; pareil en lecture qu'à l'arrêt, refusé en rec/punch/disk; affichage
- * dans la colonne des destinations par pictogrammes vectoriels flèche droite / flèche gauche
+ * dans la colonne des destinations par pictogrammes vectoriels VERTS flèche droite / flèche gauche
  * / icône de boucle — pas de texte).
  *
  * Fade (rotation rouge: OFF/1s/2s/8s/32s): en lecture, tout saut de marker (MRK/M+/M-) fond
@@ -552,7 +553,7 @@ static void mm_panel(void *r)
 
 static char *put_str(char *e, const char *s) { while (*s) *e++ = *s++; *e = 0; return e; }
 
-/* v7.5: pictogrammes vectoriels des destinations LOOP (colonne blanche, pas de texte —
+/* v1.7.5: pictogrammes vectoriels des destinations LOOP (colonne blanche, pas de texte —
  * dessinés en pixels, traits Q10 width 2): flèche droite / flèche gauche (décalages) et
  * boucle (on-off: anneau avec brèche en haut à gauche, tête de flèche vers la brèche) */
 static void mm_seg(void *r, int x0, int y0, int x1, int y1, const uint8_t *c)
@@ -688,8 +689,14 @@ static void overlay(void *r, int32_t screen)
                 }
             }
         }
-        else if (w->dst >= MM2_D_LSR && w->dst <= MM2_D_LOP)       /* v7.5: pictos boucle */
-            dst_glyph(r, w->dst, xs[2], y, cols[2]);
+        else if (w->dst >= MM2_D_LSR && w->dst <= MM2_D_LOP)       /* v1.7.5: pictos boucle en
+                                                                    * VERT permanent (retour
+                                                                    * utilisateur): lisible sur
+                                                                    * le fond blanc de la ligne
+                                                                    * sélectionnée et sur le fond
+                                                                    * sombre, rappelle la couleur
+                                                                    * de boucle de l'OP-1 */
+            dst_glyph(r, w->dst, xs[2], y, c_green);
         else sf_text(r, OP1_Q10(xs[2]), yq, SF_S, dstTextOfRow(w), 0x600, cur_ ? c_black : cols[2]);
         {   /* v7.4: fade seulement là où il s'applique (MUTE/MRK/M+/M-) — case vide sinon; pour les
              * sauts, destination du fade en petites capitales (clic rouge: ALL/P1..P4/P12/P34) */

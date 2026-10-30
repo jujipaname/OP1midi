@@ -141,37 +141,38 @@ int mm2_edit_key(int code, int pressed, int shift)
     return 0;                                                          /* avalé par l'intégration (modal) */
 }
 
-/* liste plate des destinations: OFF, COMBO, SND 1..8, TAPE 1..4, MUTE 1..4, MRK 1..32, M+, M-,
- * L> (boucle droite), L< (boucle gauche), LOP (boucle on/off) — 0..54 (v7.5); les dests LOOP
- * suivent M+/M-, COMBO toujours en premier (première destination atteinte en tournant depuis OFF) */
+/* liste plate des destinations (v1.7.5, ordre vert du retour utilisateur): les dests LOOP
+ * viennent EN PREMIER, avant COMBO: OFF, L> (boucle droite), L< (boucle gauche), LOP (boucle
+ * on/off), COMBO, SND 1..8, TAPE 1..4, MUTE 1..4, MRK 1..32, M+, M- — 0..54; première
+ * destination atteinte en tournant depuis OFF = L> */
 #define FLAT_LAST 54
 static int flat_pos(const mm2_row *r)
 {
-    if (r->dst == MM2_D_COMBO) return 1;
-    if (r->dst == MM2_D_SND) { int n = r->dnum < 1 ? 1 : r->dnum > 8 ? 8 : r->dnum; return 1 + n; }
-    if (r->dst == MM2_D_TAPE) { int n = r->dnum < 1 ? 1 : r->dnum > 4 ? 4 : r->dnum; return 9 + n; }
-    if (r->dst == MM2_D_MUTE) { int n = r->dnum < 1 ? 1 : r->dnum > 4 ? 4 : r->dnum; return 13 + n; }
-    if (r->dst == MM2_D_MRK) { int n = r->dnum < 1 ? 1 : r->dnum > MM2_MRK_MAX ? MM2_MRK_MAX : r->dnum; return 17 + n; }
-    if (r->dst == MM2_D_MRP) return 50;
-    if (r->dst == MM2_D_MRM) return 51;
-    if (r->dst == MM2_D_LSR) return 52;                /* v7.5: loop droite puis gauche puis on/off */
-    if (r->dst == MM2_D_LSL) return 53;
-    if (r->dst == MM2_D_LOP) return 54;
+    if (r->dst == MM2_D_LSR) return 1;
+    if (r->dst == MM2_D_LSL) return 2;
+    if (r->dst == MM2_D_LOP) return 3;
+    if (r->dst == MM2_D_COMBO) return 4;
+    if (r->dst == MM2_D_SND) { int n = r->dnum < 1 ? 1 : r->dnum > 8 ? 8 : r->dnum; return 4 + n; }
+    if (r->dst == MM2_D_TAPE) { int n = r->dnum < 1 ? 1 : r->dnum > 4 ? 4 : r->dnum; return 12 + n; }
+    if (r->dst == MM2_D_MUTE) { int n = r->dnum < 1 ? 1 : r->dnum > 4 ? 4 : r->dnum; return 16 + n; }
+    if (r->dst == MM2_D_MRK) { int n = r->dnum < 1 ? 1 : r->dnum > MM2_MRK_MAX ? MM2_MRK_MAX : r->dnum; return 20 + n; }
+    if (r->dst == MM2_D_MRP) return 53;
+    if (r->dst == MM2_D_MRM) return 54;
     return 0;                                              /* OFF (et toute destination inconnue) */
 }
 static void flat_set(mm2_row *r, int pos)
 {
     if (pos <= 0) { r->dst = MM2_D_OFF; r->dnum = 0; }
-    else if (pos == 1) { r->dst = MM2_D_COMBO; r->dnum = 0; }
-    else if (pos <= 9) { r->dst = MM2_D_SND; r->dnum = (uint8_t)(pos - 1); }
-    else if (pos <= 13) { r->dst = MM2_D_TAPE; r->dnum = (uint8_t)(pos - 9); }
-    else if (pos <= 17) { r->dst = MM2_D_MUTE; r->dnum = (uint8_t)(pos - 13); }
-    else if (pos <= 49) { r->dst = MM2_D_MRK; r->dnum = (uint8_t)(pos - 17); }
-    else if (pos == 50) { r->dst = MM2_D_MRP; r->dnum = 0; }
-    else if (pos == 51) { r->dst = MM2_D_MRM; r->dnum = 0; }
-    else if (pos == 52) { r->dst = MM2_D_LSR; r->dnum = 0; }     /* v7.5: loop droite */
-    else if (pos == 53) { r->dst = MM2_D_LSL; r->dnum = 0; }     /* loop gauche */
-    else { r->dst = MM2_D_LOP; r->dnum = 0; }                    /* loop on/off */
+    else if (pos == 1) { r->dst = MM2_D_LSR; r->dnum = 0; }      /* v1.7.5: loop droite en premier */
+    else if (pos == 2) { r->dst = MM2_D_LSL; r->dnum = 0; }      /* loop gauche */
+    else if (pos == 3) { r->dst = MM2_D_LOP; r->dnum = 0; }      /* loop on/off */
+    else if (pos == 4) { r->dst = MM2_D_COMBO; r->dnum = 0; }
+    else if (pos <= 12) { r->dst = MM2_D_SND; r->dnum = (uint8_t)(pos - 4); }
+    else if (pos <= 16) { r->dst = MM2_D_TAPE; r->dnum = (uint8_t)(pos - 12); }
+    else if (pos <= 20) { r->dst = MM2_D_MUTE; r->dnum = (uint8_t)(pos - 16); }
+    else if (pos <= 52) { r->dst = MM2_D_MRK; r->dnum = (uint8_t)(pos - 20); }
+    else if (pos == 53) { r->dst = MM2_D_MRP; r->dnum = 0; }
+    else { r->dst = MM2_D_MRM; r->dnum = 0; }
 }
 
 void mm2_edit_turn(int knob, int delta, int shift)

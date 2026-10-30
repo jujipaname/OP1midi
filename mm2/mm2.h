@@ -22,8 +22,9 @@
  *         (numéro / anglais C#4 / solfège DO#4 — global, clé 'mmnd'); Shift+clic = vider la ligne
  *   vert: rotation = n° source / Shift+rotation = canal de ligne; clic = type NOTE/CC/PC;
  *         Shift+clic = learn MIDI on-off (le premier NOTE/CC/PC capture)
- *   blanc: rotation = destination en liste plate (COMBO, OFF, SND 1..8, TAPE 1..4, MUTE 1..4,
- *         MRK 1..32, M+, M-, L> L< LOP); clic seul = validation du learn combo; Shift+clic =
+ *   blanc: rotation = destination en liste plate (les LOOP en premier depuis OFF: L>,
+ *         L<, LOP — v1.7.5 — puis COMBO, OFF, SND 1..8, TAPE 1..4, MUTE 1..4, MRK 1..32,
+ *         M+, M-); clic seul = validation du learn combo; Shift+clic =
  *         learn combo on-off (la destination doit être COMBO, 3 touches max)
  *   rouge: rotation = fade (OFF/1s/2s/8s/32s) / Shift+rotation = pistes du fade
  *         (ALL/P1/P2/P3/P4/P12/P34); clic = lecture du midi interne de la ligne on/off

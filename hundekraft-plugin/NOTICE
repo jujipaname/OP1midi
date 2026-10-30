@@ -34,7 +34,8 @@ WHAT IT DOES (control map)
   on the row (1 Hz) while the settings page is shown. Push: opens the mapping editor (modal overlay).
 - Editor v13 (16 rows, 4 pages): blue = cursor / note display (number, C#4, DO#4) / Shift+push = clear
   row; green = source (NOTE/CC/PC + number, small label) / Shift+turn = channel / push = type /
-  Shift+push = MIDI learn; white = destination flat list (COMBO first, OFF, SND 1..8, TAPE 1..4,
+  Shift+push = MIDI learn; white = destination flat list (the THREE LOOP destinations first since
+  v1.7.5: L> shift right, L< shift left, LOP on/off — then COMBO, OFF, SND 1..8, TAPE 1..4,
   MUTE 1..4, MRK 1..32, M+, M-) / push = validate combo / Shift+push = combo learn; red = fade
   (OFF/1s/2s/8s/32s) / Shift+turn = fade tracks (ALL/P1/P2/P3/P4/P12/P34) / push = internal-midi
   reading toggle (small i before the source: red on, gray off) / Shift+push = nothing (legacy removed).
@@ -72,8 +73,11 @@ CHANGES
     right), L< (shift it left), LOP (loop on/off). Hot op1_tape_loop_get/set — no key injection,
     no jumps; works stopped and playing (tape/mixer/mixov views), denied armed/recording/punch/
     disk mode; step = span/16 (min 0x1400 samples ~54 ms), region width kept, clamped to the tape.
-    Loop-display rows draw VECTOR PICTOGRAMS in the destination column (right arrow, left arrow,
-    loop ring) instead of stock-font text (the stroke font has no SVG/loop glyphs).
+    The loop destinations come FIRST in the white destination list, before COMBO. Their display
+    draws GREEN vector pictograms in the destination column (right/left arrows and a loop ring;
+    the editor stroke font has no loop glyphs). Green by user request to recall the OP-1 loop
+    color — the ink color is a plain draw-time parameter, so it could change dynamically, but
+    a fixed green also stays readable on the white highlighted row.
   * Line codec v5 ('mmv' 4 -> 5): dst needs its 4th bit and the dnum field 7 bits (loop rows
     have no parameter) — stored rows reset ONCE: re-map your lines after installing.
     Test suite extended (loop dispatch kinds 0/1/2, flat list 52..54, pack/unpack v5).
