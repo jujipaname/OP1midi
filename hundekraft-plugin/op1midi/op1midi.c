@@ -43,11 +43,13 @@
  * /0x01DD5248/0x01DD524D, réveil 0x019C2F04, pattern op1r midi/mx.c), TAPE 1..4
  * (op1_tape_switch), MUTE 1..4 (octet mute R246 0xFF8010A0 + màj DSP 0x01967ED0), MARKER 1..32
  * (un ensemble partagé entre les tapes en 3.0.3: le n-ième marqueur, tape courante, sans
- * switch), MRK+/MRK- (saut, wrap), LOOP (v7.5: décalage de la région de boucle à droite puis
- * à gauche puis boucle on/off — op1_tape_loop_get/set hot, sans saut; pas = largeur/16, min
- * 0x1400 échantillons; pareil en lecture qu'à l'arrêt, refusé en rec/punch/disk; affichage
- * dans la colonne des destinations par pictogrammes vectoriels VERTS flèche droite / flèche gauche
- * / icône de boucle — pas de texte).
+ * switch), MRK+/MRK- (saut, wrap), LOOP (v7.5: boucle on/off + decalage de la region (retour
+ * user v1.7.5 bis: decalage CHAINE — a droite la FIN de la boucle devient le DEBUT de la
+ * suivante, a gauche le debut devient la fin; la LONGUEUR est conservee, clamp aux bords de
+ * bande (un cran recurrent au bord = boucle de bord) — op1_tape_loop_get/set hot, sans saut;
+ * pareil en lecture qu'a l'arret, refuse en rec/punch/disk; affichage dans la colonne des
+ * destinations par pictogrammes vectoriels VERTS fleche droite / fleche gauche / icone de
+ * boucle — pas de texte).
  *
  * Fade (rotation rouge: OFF/1s/2s/8s/32s): en lecture, tout saut de marker (MRK/M+/M-) fond
  * les pistes choisies (Shift+rotation rouge: ALL/P1/P2/P3/P4/P12/P34) des volumes live
@@ -349,7 +351,11 @@ static void drain(void)                          /* main loop */
                 inject_keys(seq, n / 2);
             }
         } else if (p.kind == K_LOOP) {       /* v7.5: boucle tape, hot — pas de saut, pas de
-                                              * touches injectées (op1_tape_loop_get/set) */
+                                              * touches injectées (op1_tape_loop_get/set);
+                                              * v1.7.5 bis (retour user): décalage chaîné —
+                                              * la fin de la boucle devient le début de la
+                                              * nouvelle (droite), le début devient la fin
+                                              * (gauche), la LONGUEUR est conservée */
             mm2_env e;
             env_query(&e);
             if (!e.tape_mode || e.punch || pu_mode ||
@@ -358,15 +364,18 @@ static void drain(void)                          /* main loop */
             op1_tape_loop_get(&on, &li, &lo);
             if (p.a == 2) {                  /* on-off: bascule la région courante */
                 op1_tape_loop_set(!on, li, lo);
-            } else {                         /* décalage: la largeur est conservée */
+            } else {                         /* décalage chaîné (v1.7.5 bis, retour user):
+                                              * la LONGUEUR est conservée, le pas = la largeur */
                 if (li < 0 || li >= lo) continue;
                 int32_t span = lo - li;
-                int32_t step = span / 16;
-                if (step < 0x1400) step = 0x1400;      /* min ~54 ms @ 44.1 kHz */
-                int32_t d = p.a == 1 ? step : -step;
-                if (li + d < 0) d = -li;               /* clamp: pas au-delà de la bande */
-                if (lo + d > 0xF23FA0) d = 0xF23FA0 - lo;
-                if (d) op1_tape_loop_set(on, li + d, lo + d);
+                if (p.a == 1) {              /* droite: la fin devient le début de la suivante */
+                    if (lo + span > 0xF23FA0) { li = 0xF23FA0 - span; lo = 0xF23FA0; }
+                    else { li = lo; lo = lo + span; }
+                } else {                     /* gauche: le début devient la fin de la précédente */
+                    if (li - span < 0) { li = 0; lo = span; }
+                    else { lo = li; li = li - span; }
+                }
+                op1_tape_loop_set(on, li, lo);
             }
         } else {                             /* K_MARKER / K_MNEXT / K_MPREV: sauts (± fade) */
             mm2_env e;

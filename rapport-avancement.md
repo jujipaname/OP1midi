@@ -700,3 +700,17 @@ Deux retours après flash: (1) les dests loop en premier dans la liste du blanc,
    Vert permanent (demandé vert pour rappeler la boucle OP-1): lisible sur les deux fonds.
    dst_texts 'L>'/'L<'/'LOP' restent des replis.
 - **`op1midi.knl`** : 23 084 o, 0 warning. mm2_test ok.
+
+## 32. 1.7.5 ter — décalage de boucle chaîné (30 octobre 2026)
+
+Retours hardware v2: la sémantique voulue n'est pas un pas fractionnaire mais le décalage
+chaîné du stock: à droite, la FIN de la boucle devient le DÉBUT de la suivante (tranche
+suivante); à gauche, le DÉBUT devient la FIN de la précédente. La LONGUEUR est conservée.
+
+1. K_LOOP drain: droite -> set(in = out, out = out + span); si out + span > 0xF23FA0,
+   recalé au bord (in = fin - span, out = fin) pour garder la largeur; gauche -> set(
+   out = in, in = in - span); si in - span < 0: (0, span).
+2. Au bord: des crans répétés maintiennent la boucle de bord (la sortie déjà au bord
+   produit la même boucle). Le clamp des deux bords est exclusif (span < fin de bande).
+3. LOP (on/off) inchangé. Aucun changement noyau (kinds 0/1/2 identiques).
+- **`op1midi.knl`** : rebuild, 0 warning. mm2_test ok (inchangé).

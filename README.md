@@ -78,8 +78,10 @@ The cursor row is highlighted; columns use the encoder colors (blue/green/white/
   before COMBO (v1.7.5, user feedback).
 - The loop destinations use the tape services directly (no keys injected): they work the
   same while stopped and while playing, in tape, mixer and Shift+mixer views; they are
-  refused while armed, recording, punch or in disk mode. Each step moves the region by
-  1/16 of its width (minimum ~54 ms); the region width is kept and clamped to the tape.
+  refused while armed, recording, punch or in disk mode. The shift is **chained** (v1.7.5
+  bis): turning right, the loop **end** becomes the new **start** (the next slice, same
+  width); turning left, the start becomes the new end. The width is kept, clamped against
+  the tape edges.
   The display uses drawn **arrow / loop pictograms in green** (fixed color: readable on the
   white highlighted row and the dark background, and it recalls the OP-1 loop color).
 - MUTE/MRK/M+/M- honor the row **fade**: while playing, the chosen tracks (red Shift+turn:
@@ -192,8 +194,10 @@ La ligne du curseur est en surbrillance; les colonnes reprennent les couleurs de
   avant COMBO (v1.7.5, retour utilisateur).
 - Les destinations loop touchent les services tape directement (aucune touche injectée):
   identique à l'arrêt et en lecture, vues tape/mixer/mixov; refusé armé, en enregistrement,
-  punch ou disk mode. Chaque cran déplace la région de 1/16 de sa largeur (minimum ~54 ms);
-  la largeur est conservée, la position clampée à la bande. L'affichage de l'éditeur dessine
+  punch ou disk mode. Le décalage est **chaîné** (v1.7.5 bis): vers la droite, la **fin** de
+  la boucle devient le nouveau **début** (la tranche suivante, même largeur); vers la gauche,
+  le début devient la fin. La largeur est conservée, clampée aux bords de la bande.
+  L'affichage de l'éditeur dessine
   des **pictogrammes flèche / boucle en VERT** (couleur fixe: lisible sur le fond blanc de la
   ligne sélectionnée comme sur le fond sombre, et ça rappelle la boucle verte de l'OP-1).
 - MUTE/MRK/M+/M- respectent le **fade** de la ligne: en lecture, les pistes choisies

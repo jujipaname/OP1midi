@@ -46,7 +46,7 @@ WHAT IT DOES (control map)
   codes), TAPE 1..4 (op1_tape_switch), MUTE 1..4 (mute byte + DSP update; fades while playing),
   MRK 1..32 / M+ / M- (shared marker set, jumps work stopped and playing, PLAY is only pressed
   from stop), LOOP (v7.5: shift the loop region right then left then loop on/off — hot
-  op1_tape_loop_get/set, no jumps, step = span/16 min 0x1400 samples; denied while armed /
+  op1_tape_loop_get/set, no jumps; denied while armed /
   recording / punch / disk; arrows and loop pictograms drawn in the destination column instead
   of text), tape, mixer and Shift+mixer views allowed.
 - Fade: while playing, jumps fade the chosen tracks to silence, jump at silence, then fade back.
@@ -72,7 +72,10 @@ CHANGES
   * Tape LOOP destinations (user request, ported stock Shift+arrows): L> (shift the loop region
     right), L< (shift it left), LOP (loop on/off). Hot op1_tape_loop_get/set — no key injection,
     no jumps; works stopped and playing (tape/mixer/mixov views), denied armed/recording/punch/
-    disk mode; step = span/16 (min 0x1400 samples ~54 ms), region width kept, clamped to the tape.
+    disk mode. CHAINED SHIFT (v1.7.5 bis, user feedback): turning right, the loop END becomes
+    the new START (the next slice); turning left, the START becomes the new END — the width is
+    always kept, clamped against the tape edges (repeated presses at the edge hold the edge
+    loop).
     The loop destinations come FIRST in the white destination list, before COMBO. Their display
     draws GREEN vector pictograms in the destination column (right/left arrows and a loop ring;
     the editor stroke font has no loop glyphs). Green by user request to recall the OP-1 loop
